@@ -5,6 +5,7 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import OTPVerification from './pages/OTPVerification';
 import Home from './pages/Home';
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -21,7 +22,14 @@ function App() {
         </Route>
 
         {/* Dashboard Routes */}
-        <Route path="/home" element={<Home />} />
+        <Route 
+          path="/home" 
+          element={
+            <ProtectedRoute>
+              <Home />
+            </ProtectedRoute>
+          } 
+        />
         
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
