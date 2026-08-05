@@ -20,8 +20,9 @@ type Config struct {
 
 // AppConfig holds general application settings.
 type AppConfig struct {
-	Port string
-	Env  string
+	Port     string
+	GRPCPort string
+	Env      string
 }
 
 // DBConfig holds PostgreSQL connection parameters.
@@ -76,8 +77,9 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Port: getEnv("APP_PORT", "8081"),
-			Env:  getEnv("APP_ENV", "development"),
+			Port:     getEnv("APP_PORT", "8081"),
+			GRPCPort: getEnv("GRPC_PORT", "50052"),
+			Env:      getEnv("APP_ENV", "development"),
 		},
 
 		DB: DBConfig{

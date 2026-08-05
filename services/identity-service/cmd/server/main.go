@@ -13,9 +13,13 @@ import (
 	"github.com/velocity-dashboard/identity-service/internal/auth/routes"
 	"github.com/velocity-dashboard/identity-service/internal/auth/usecase"
 	"github.com/velocity-dashboard/identity-service/internal/config"
+	internalgrpc "github.com/velocity-dashboard/identity-service/internal/grpc"
 	"github.com/velocity-dashboard/identity-service/pkg/database"
 	"github.com/velocity-dashboard/identity-service/pkg/jwtpkg"
 	"github.com/velocity-dashboard/identity-service/pkg/twiliopkg"
+	identityv1 "github.com/velocity-dashboard/identity-service/proto/identity/v1"
+	"google.golang.org/grpc"
+	"net"
 )
 
 func main() {
@@ -90,11 +94,28 @@ func main() {
 	v1 := app.Group("/api")
 	routes.RegisterAuthRoutes(v1, authHandler)
 
-	// ── 7. Start server ───────────────────────────────────────
+	// ── 7. Start gRPC server ──────────────────────────────────
+	grpcServer := grpc.NewServer()
+	identityv1.RegisterAuthServiceServer(grpcServer, internalgrpc.NewServer(jwtSvc))
+
+	grpcAddr := ":" + cfg.App.GRPCPort
+	lis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		log.Fatalf("[main] failed to listen on gRPC port: %v", err)
+	}
+
+	go func() {
+		log.Printf("[main] gRPC server starting on %s", grpcAddr)
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("[main] gRPC server error: %v", err)
+		}
+	}()
+
+	// ── 8. Start HTTP server ──────────────────────────────────
 	addr := ":" + cfg.App.Port
-	log.Printf("[main] identity-service starting on %s (env=%s)", addr, cfg.App.Env)
+	log.Printf("[main] identity-service HTTP starting on %s (env=%s)", addr, cfg.App.Env)
 
 	if err := app.Listen(addr); err != nil {
-		log.Fatalf("[main] server error: %v", err)
+		log.Fatalf("[main] HTTP server error: %v", err)
 	}
 }
