@@ -1,8 +1,10 @@
 package usecase
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/velocity-dashboard/identity-service/internal/auth/repository"
 	"github.com/velocity-dashboard/identity-service/internal/auth/validator"
 	"github.com/velocity-dashboard/identity-service/internal/common/apperror"
+	velocityclient "github.com/velocity-dashboard/identity-service/internal/grpc/client/velocity"
 	"github.com/velocity-dashboard/identity-service/pkg/hashpkg"
 	"github.com/velocity-dashboard/identity-service/pkg/jwtpkg"
 	"github.com/velocity-dashboard/identity-service/pkg/twiliopkg"
@@ -54,9 +57,12 @@ type AuthUseCase interface {
 // ──────────────────────────────────────────────────────────────
 
 type authUseCase struct {
-	repo      repository.AuthRepository
-	jwtSvc    *jwtpkg.JWTService
-	smsSvc    *twiliopkg.SMSService
+	repo   repository.AuthRepository
+	jwtSvc *jwtpkg.JWTService
+	smsSvc *twiliopkg.SMSService
+
+	velocityClient *velocityclient.Client
+
 	otpExpiry int // minutes
 }
 
@@ -65,13 +71,15 @@ func NewAuthUseCase(
 	repo repository.AuthRepository,
 	jwtSvc *jwtpkg.JWTService,
 	smsSvc *twiliopkg.SMSService,
+	velocityClient *velocityclient.Client,
 	otpExpiryMinutes int,
 ) AuthUseCase {
 	return &authUseCase{
-		repo:      repo,
-		jwtSvc:    jwtSvc,
-		smsSvc:    smsSvc,
-		otpExpiry: otpExpiryMinutes,
+		repo:           repo,
+		jwtSvc:         jwtSvc,
+		smsSvc:         smsSvc,
+		velocityClient: velocityClient,
+		otpExpiry:      otpExpiryMinutes,
 	}
 }
 
@@ -118,6 +126,20 @@ func (uc *authUseCase) Register(req dto.RegisterRequest) (*dto.RegisterResponse,
 	created, err := uc.repo.CreateUser(user)
 	if err != nil {
 		return nil, apperror.InternalServerError("failed to create user account")
+	}
+
+	_, err = uc.velocityClient.CreateUser(
+		context.Background(),
+		int64(created.ID),
+		created.Email,
+	)
+
+	if err != nil {
+
+		// log only
+		log.Printf("failed syncing user with velocity: %v", err)
+
+		// DON'T fail registration
 	}
 
 	// 7. Send verification OTP (non-blocking — failure does not roll back registration).

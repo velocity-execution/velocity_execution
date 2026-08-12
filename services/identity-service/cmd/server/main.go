@@ -16,6 +16,15 @@ import (
 	"github.com/velocity-dashboard/identity-service/pkg/database"
 	"github.com/velocity-dashboard/identity-service/pkg/jwtpkg"
 	"github.com/velocity-dashboard/identity-service/pkg/twiliopkg"
+
+	"net"
+
+	grpcserver "github.com/velocity-dashboard/identity-service/internal/grpc"
+	identityv1 "github.com/velocity-dashboard/identity-service/proto/identity/v1"
+
+	"google.golang.org/grpc"
+
+	velocityclient "github.com/velocity-dashboard/identity-service/internal/grpc/client/velocity"
 )
 
 func main() {
@@ -39,6 +48,13 @@ func main() {
 		cfg.JWT.RefreshExpiryDays,
 	)
 
+	grpcAuthServer := grpcserver.NewServer(jwtSvc)
+
+	velocityClient, err := velocityclient.New("localhost:50052")
+	if err != nil {
+		log.Fatalf("failed to connect to Velocity: %v", err)
+	}
+
 	smsSvc := twiliopkg.NewSMSService(
 		cfg.Twilio.AccountSID,
 		cfg.Twilio.AuthToken,
@@ -47,7 +63,7 @@ func main() {
 
 	// ── 4. Wire auth feature (manual DI) ─────────────────────
 	authRepo := repository.NewAuthRepository(db)
-	authUC := usecase.NewAuthUseCase(authRepo, jwtSvc, smsSvc, cfg.OTP.ExpiryMinutes)
+	authUC := usecase.NewAuthUseCase(authRepo, jwtSvc, smsSvc,velocityClient, cfg.OTP.ExpiryMinutes)
 	authHandler := handler.NewAuthHandler(authUC)
 
 	// ── 5. Setup Fiber app ────────────────────────────────────
@@ -93,6 +109,26 @@ func main() {
 	// ── 7. Start server ───────────────────────────────────────
 	addr := ":" + cfg.App.Port
 	log.Printf("[main] identity-service starting on %s (env=%s)", addr, cfg.App.Env)
+
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+
+	identityv1.RegisterAuthServiceServer(
+		grpcServer,
+		grpcAuthServer,
+	)
+
+	go func() {
+		log.Println("gRPC server listening on :50051")
+
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
 
 	if err := app.Listen(addr); err != nil {
 		log.Fatalf("[main] server error: %v", err)
