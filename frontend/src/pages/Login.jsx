@@ -22,10 +22,23 @@ export default function Login() {
 
     try {
       const response = await authAPI.login(formData);
-      localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('refresh_token', response.refresh_token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      navigate('/home');
+
+      localStorage.setItem(
+        'access_token',
+        response.data.access_token
+      );
+
+      localStorage.setItem(
+        'refresh_token',
+        response.data.refresh_token
+      );
+
+      localStorage.setItem(
+        'user',
+        JSON.stringify(response.data.user)
+      );
+
+      navigate('/');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -36,9 +49,9 @@ export default function Login() {
   return (
     <div>
       <h1 style={{ fontSize: '2rem', fontWeight: '700', marginBottom: '2rem', lineHeight: '1.2' }}>
-        Instant access to trading from<br/>comfort of your home
+        Instant access to trading from<br />comfort of your home
       </h1>
-      
+
       <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '1.5rem' }}>Login</h3>
 
       {error && (
