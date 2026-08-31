@@ -38,7 +38,11 @@ export default function Login() {
         JSON.stringify(response.data.user)
       );
 
-      navigate('/');
+      if (response.data.user.role === 'seller') {
+        navigate('/seller');
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError(err.message);
     } finally {

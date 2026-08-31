@@ -79,11 +79,11 @@ export default function Markets() {
                       {s.symbol.replace('_', '/')}
                     </td>
                     <td className="px-6 py-4 text-right font-medium">
-                      ${s.price.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                      ${(s.price || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
                     </td>
-                    <td className={`px-6 py-4 text-right font-medium flex items-center justify-end gap-1 ${s.change24h >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {s.change24h >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                      {Math.abs(s.change24h).toFixed(2)}%
+                    <td className={`px-6 py-4 text-right font-medium flex items-center justify-end gap-1 ${(s.change24h || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                      {(s.change24h || 0) >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                      {Math.abs(s.change24h || 0).toFixed(2)}%
                     </td>
                     <td className="px-6 py-4 text-right text-gray-400">
                       ${s.high24h?.toLocaleString(undefined, {minimumFractionDigits: 2}) || 'N/A'}
@@ -92,7 +92,7 @@ export default function Markets() {
                       ${s.low24h?.toLocaleString(undefined, {minimumFractionDigits: 2}) || 'N/A'}
                     </td>
                     <td className="px-6 py-4 text-right text-gray-400">
-                      ${s.volume24h.toLocaleString()}
+                      ${(s.volume24h || 0).toLocaleString()}
                     </td>
                   </tr>
                 ))
@@ -104,3 +104,4 @@ export default function Markets() {
     </div>
   );
 }
+

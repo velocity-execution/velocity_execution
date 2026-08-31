@@ -8,6 +8,7 @@ type RegisterRequest struct {
 	Email    string `json:"email"     validate:"required,email,max=50"`
 	Phone    string `json:"phone"     validate:"required,min=7,max=20"`
 	Password string `json:"password"  validate:"required,min=8,max=72"`
+	Role     string `json:"role"      validate:"omitempty,oneof=user seller"`
 }
 
 // LoginRequest is the payload for POST /auth/login.

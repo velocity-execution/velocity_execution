@@ -11,6 +11,10 @@ import Wallet from './pages/Wallet';
 import OpenOrders from './pages/OpenOrders';
 import OrderHistory from './pages/OrderHistory';
 
+// Seller Pages
+import SellerDashboard from './pages/SellerDashboard';
+import SellerProducts from './pages/SellerProducts';
+
 // Auth Pages
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -54,6 +58,10 @@ function App() {
       <Route path="/orders/open" element={<ProtectedRoute><DashboardLayout><OpenOrders /></DashboardLayout></ProtectedRoute>} />
       <Route path="/orders/history" element={<ProtectedRoute><DashboardLayout><OrderHistory /></DashboardLayout></ProtectedRoute>} />
       
+      {/* Seller Routes */}
+      <Route path="/seller" element={<ProtectedRoute><DashboardLayout><SellerDashboard /></DashboardLayout></ProtectedRoute>} />
+      <Route path="/seller/products" element={<ProtectedRoute><DashboardLayout><SellerProducts /></DashboardLayout></ProtectedRoute>} />
+
       {/* Catch-all redirect */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

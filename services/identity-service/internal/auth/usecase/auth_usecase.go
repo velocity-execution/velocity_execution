@@ -104,13 +104,18 @@ func (uc *authUseCase) Register(req dto.RegisterRequest) (*dto.RegisterResponse,
 		return nil, apperror.InternalServerError("failed to hash password")
 	}
 
+	role := req.Role
+	if role == "" {
+		role = entity.RoleUser
+	}
+
 	// 6. Persist the new user.
 	user := &entity.User{
 		FullName:     req.FullName,
 		Email:        req.Email,
 		Phone:        req.Phone,
 		HashPassword: hashedPwd,
-		Role:         "user",
+		Role:         role,
 		IsVerified:   false,
 		IsBlocked:    false,
 	}

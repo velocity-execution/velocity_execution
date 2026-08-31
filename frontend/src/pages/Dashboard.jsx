@@ -80,12 +80,12 @@ export default function Dashboard() {
                            {s.symbol.replace('_', '/')}
                          </Link>
                        </td>
-                       <td className="py-3 text-right">${s.price.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                       <td className={`py-3 text-right flex items-center justify-end gap-1 ${s.change24h >= 0 ? 'text-success' : 'text-danger'}`}>
-                         {s.change24h >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                         {Math.abs(s.change24h).toFixed(2)}%
+                       <td className="py-3 text-right">${(s.price || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                       <td className={`py-3 text-right flex items-center justify-end gap-1 ${(s.change24h || 0) >= 0 ? 'text-success' : 'text-danger'}`}>
+                         {(s.change24h || 0) >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                         {Math.abs(s.change24h || 0).toFixed(2)}%
                        </td>
-                       <td className="py-3 text-right text-gray-400">${s.volume24h.toLocaleString()}</td>
+                       <td className="py-3 text-right text-gray-400">${(s.volume24h || 0).toLocaleString()}</td>
                      </tr>
                    ))
                  ) : (
@@ -135,10 +135,10 @@ export default function Dashboard() {
         <div className="bg-surface rounded-lg p-5 border border-border">
           <h2 className="font-medium text-lg mb-4">Quick Actions</h2>
           <div className="grid grid-cols-2 gap-3">
-             <Link to="/trade/BTC_USD" className="p-4 bg-background border border-border rounded hover:border-primary transition-colors flex flex-col items-center justify-center gap-2">
+             <Link to="/trade/BTCUSDT" className="p-4 bg-background border border-border rounded hover:border-primary transition-colors flex flex-col items-center justify-center gap-2">
                <span className="font-medium">Trade BTC</span>
              </Link>
-             <Link to="/trade/ETH_USD" className="p-4 bg-background border border-border rounded hover:border-primary transition-colors flex flex-col items-center justify-center gap-2">
+             <Link to="/trade/ETHUSDT" className="p-4 bg-background border border-border rounded hover:border-primary transition-colors flex flex-col items-center justify-center gap-2">
                <span className="font-medium">Trade ETH</span>
              </Link>
              <Link to="/wallet" className="p-4 bg-background border border-border rounded hover:border-primary transition-colors flex flex-col items-center justify-center gap-2">
@@ -153,3 +153,6 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+

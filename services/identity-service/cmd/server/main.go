@@ -8,9 +8,11 @@ import (
 	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
+	"net"
 	"github.com/velocity-dashboard/identity-service/internal/auth/handler"
 	"github.com/velocity-dashboard/identity-service/internal/auth/repository"
 	"github.com/velocity-dashboard/identity-service/internal/auth/routes"
+	"github.com/velocity-dashboard/identity-service/internal/auth/seed"
 	"github.com/velocity-dashboard/identity-service/internal/auth/usecase"
 	"github.com/velocity-dashboard/identity-service/internal/config"
 	internalgrpc "github.com/velocity-dashboard/identity-service/internal/grpc"
@@ -19,7 +21,6 @@ import (
 	"github.com/velocity-dashboard/identity-service/pkg/twiliopkg"
 	identityv1 "github.com/velocity-dashboard/identity-service/proto/identity/v1"
 	"google.golang.org/grpc"
-	"net"
 )
 
 func main() {
@@ -34,6 +35,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("[main] database connection failed: %v", err)
 	}
+	
+	// Seed initial data
+	seed.SeedUsers(db)
+
+
 
 	// ── 3. Build shared services ──────────────────────────────
 	jwtSvc := jwtpkg.NewJWTService(

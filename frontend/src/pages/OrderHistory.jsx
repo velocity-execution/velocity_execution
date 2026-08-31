@@ -43,7 +43,7 @@ export default function OrderHistory() {
         </div>
         <input 
           type="text"
-          placeholder="Symbol (e.g. BTC_USD)"
+          placeholder="Symbol (e.g. BTCUSDT)"
           value={filterSymbol}
           onChange={(e) => setFilterSymbol(e.target.value)}
           className="bg-background border border-border rounded px-3 py-1.5 text-sm text-white focus:border-primary focus:outline-none transition-colors"
@@ -113,3 +113,4 @@ export default function OrderHistory() {
     </div>
   );
 }
+

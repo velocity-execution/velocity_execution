@@ -57,3 +57,10 @@ const (
 	OTPPurposeVerify        OTPPurpose = "verify"
 	OTPPurposeResetPassword OTPPurpose = "reset_password"
 )
+
+// Role constants
+const (
+	RoleUser   = "user"
+	RoleSeller = "seller"
+	RoleAdmin  = "admin"
+)

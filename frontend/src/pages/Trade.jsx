@@ -8,7 +8,7 @@ import RecentTrades from '../components/RecentTrades';
 import { TrendingUp, TrendingDown, Clock, BarChart2 } from 'lucide-react';
 
 export default function Trade() {
-  const { symbol = 'BTC_USD' } = useParams();
+  const { symbol = 'BTCUSDT' } = useParams();
   const [ticker, setTicker] = useState(null);
   const [stats, setStats] = useState(null);
 
@@ -97,3 +97,4 @@ export default function Trade() {
     </div>
   );
 }
+
