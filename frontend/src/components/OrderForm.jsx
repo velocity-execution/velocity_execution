@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react';
 import { orderApi } from '../api/orderApi';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { fetchWallets } from '../store/walletSlice';
 import { fetchOpenOrders } from '../store/orderSlice';
 
-export default function OrderForm({ symbol, currentPrice }) {
+export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
   const dispatch = useDispatch();
+  const cleanSymbol = (symbol || 'CTGUSDT').replace('/', '').replace('_', '').toUpperCase();
+  const baseAsset = cleanSymbol.endsWith('USDT') ? cleanSymbol.slice(0, -4) : cleanSymbol;
+  const quoteAsset = 'USDT';
+
+  const { balances } = useSelector(state => state.wallet);
+  const balancesList = Array.isArray(balances) ? balances : [];
+
+  const baseWallet = balancesList.find(b => b.asset?.toUpperCase() === baseAsset);
+  const quoteWallet = balancesList.find(b => b.asset?.toUpperCase() === quoteAsset);
+
+  const availableBase = Number(baseWallet?.available || 0);
+  const availableQuote = Number(quoteWallet?.available || 0);
+
   const [side, setSide] = useState('buy');
   const [type, setType] = useState('limit');
   const [tif, setTif] = useState('GTC');
@@ -17,21 +30,39 @@ export default function OrderForm({ symbol, currentPrice }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
-  // Sync current price to limit price when it changes if empty
   useEffect(() => {
-    if (type === 'limit' && !price && currentPrice) {
+    dispatch(fetchWallets());
+  }, [dispatch]);
+
+  // Reset and sync limit price when symbol changes or when empty
+  useEffect(() => {
+    if (type === 'limit' && currentPrice) {
       setPrice(currentPrice.toString());
     }
-  }, [currentPrice, type, price]);
+  }, [symbol, currentPrice, type]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setSuccess(false);
 
-    if (!quantity || parseFloat(quantity) <= 0) {
+    const qtyNum = parseFloat(quantity);
+    if (!quantity || qtyNum <= 0) {
       setError('Invalid quantity');
       return;
+    }
+
+    if (side === 'sell' && qtyNum > availableBase) {
+      setError(`Insufficient ${baseAsset} balance. You currently hold ${availableBase} ${baseAsset}. You must hold ${baseAsset} tokens to place a SELL order.`);
+      return;
+    }
+
+    if (side === 'buy' && type === 'limit') {
+      const totalReq = parseFloat(price || 0) * qtyNum;
+      if (totalReq > availableQuote) {
+        setError(`Insufficient ${quoteAsset} balance. Required: $${totalReq.toFixed(2)}, Available: $${availableQuote.toFixed(2)}.`);
+        return;
+      }
     }
 
     if ((type === 'limit' || type === 'stop_limit') && (!price || parseFloat(price) <= 0)) {
@@ -45,13 +76,13 @@ export default function OrderForm({ symbol, currentPrice }) {
     }
 
     const orderData = {
-      symbol,
-      side,
-      type,
-      time_in_force: tif,
-      quantity: parseFloat(quantity),
-      price: parseFloat(price) || 0,
-      stop_price: parseFloat(stopPrice) || 0,
+      symbol: (symbol || 'BTCUSDT').toUpperCase(),
+      side: side.toUpperCase(),
+      type: type.toUpperCase(),
+      time_in_force: (tif || 'GTC').toUpperCase(),
+      quantity: Math.max(1, Math.round(parseFloat(quantity))),
+      price: Math.round(parseFloat(price) || 0),
+      stop_price: Math.round(parseFloat(stopPrice) || 0),
     };
 
     setLoading(true);
@@ -92,6 +123,16 @@ export default function OrderForm({ symbol, currentPrice }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <div className="text-xs text-danger bg-danger/10 p-2 rounded border border-danger/20">{error}</div>}
           {success && <div className="text-xs text-success bg-success/10 p-2 rounded border border-success/20">Order placed successfully!</div>}
+
+          {/* Available balance indicator */}
+          <div className="flex justify-between items-center text-xs bg-[#0f172a]/60 px-3 py-2 rounded-lg border border-border/50">
+            <span className="text-gray-400">Available:</span>
+            <span className="font-mono font-bold text-white">
+              {side === 'buy'
+                ? `$${availableQuote.toLocaleString(undefined, { minimumFractionDigits: 2 })} ${quoteAsset}`
+                : `${availableBase.toLocaleString(undefined, { minimumFractionDigits: 4 })} ${baseAsset}`}
+            </span>
+          </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -157,7 +198,7 @@ export default function OrderForm({ symbol, currentPrice }) {
                 className="w-full bg-background border border-border rounded px-2 py-1.5 pr-12 text-sm text-white focus:outline-none focus:border-primary"
                 placeholder="0.00"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{symbol.split('_')[0]}</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">{baseAsset}</span>
             </div>
           </div>
 
@@ -172,7 +213,7 @@ export default function OrderForm({ symbol, currentPrice }) {
               disabled={loading}
               className={`w-full py-2.5 rounded font-bold uppercase transition-colors text-white ${side === 'buy' ? 'bg-success hover:bg-success/90' : 'bg-danger hover:bg-danger/90'} disabled:opacity-50`}
             >
-              {loading ? 'Processing...' : `${side} ${symbol.split('_')[0]}`}
+              {loading ? 'Processing...' : `${side} ${baseAsset}`}
             </button>
           </div>
         </form>

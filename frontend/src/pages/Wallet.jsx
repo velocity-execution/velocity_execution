@@ -8,6 +8,8 @@ export default function Wallet() {
   const dispatch = useDispatch();
   const { balances, loading, error } = useSelector(state => state.wallet);
   
+  const balanceList = Array.isArray(balances) ? balances : [];
+  
   const [modalState, setModalState] = useState({ isOpen: false, type: null, asset: null });
   const [amount, setAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,7 +37,7 @@ export default function Wallet() {
     }
 
     if (modalState.type === 'withdraw') {
-      const balance = balances.find(b => b.asset === modalState.asset);
+      const balance = balanceList.find(b => b.asset === modalState.asset);
       if (balance && parseFloat(amount) > balance.available) {
         setSubmitError('Insufficient available balance.');
         return;
@@ -70,7 +72,7 @@ export default function Wallet() {
             <WalletIcon size={20} />
             <h1 className="font-medium text-lg text-white">Estimated Balance</h1>
           </div>
-          {loading && balances.length === 0 ? (
+          {loading && balanceList.length === 0 ? (
             <div className="h-10 w-48 bg-border animate-pulse rounded mt-2"></div>
           ) : (
             <div className="text-4xl font-bold">${totalValue.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
@@ -94,7 +96,7 @@ export default function Wallet() {
               </tr>
             </thead>
             <tbody>
-              {loading && balances.length === 0 ? (
+              {loading && balanceList.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
                     Loading balances...
@@ -106,14 +108,14 @@ export default function Wallet() {
                     Failed to load balances: {error}
                   </td>
                 </tr>
-              ) : balances.length === 0 ? (
+              ) : balanceList.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
                     No balances available
                   </td>
                 </tr>
               ) : (
-                balances.map((b) => (
+                balanceList.map((b) => (
                   <tr key={b.asset} className="border-b border-border/50 hover:bg-border/20 transition-colors">
                     <td className="px-6 py-4 font-bold text-white">
                       {b.asset}
@@ -189,7 +191,7 @@ export default function Wallet() {
                 <div className="text-xs text-gray-400 flex justify-between">
                   <span>Available Balance:</span>
                   <span className="text-white font-medium">
-                    {balances.find(b => b.asset === modalState.asset)?.available.toLocaleString() || '0'} {modalState.asset}
+                    {balanceList.find(b => b.asset === modalState.asset)?.available.toLocaleString() || '0'} {modalState.asset}
                   </span>
                 </div>
               )}

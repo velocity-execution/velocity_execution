@@ -41,11 +41,14 @@ export default function OTPVerification() {
     }
   };
 
+  const [successMsg, setSuccessMsg] = useState('');
+  const [resendStatus, setResendStatus] = useState('');
+
   const handleVerify = async (e) => {
     e.preventDefault();
     const code = otp.join('');
     if (code.length !== 6) {
-      setError('Please enter a 6-digit code');
+      setError('Please enter the full 6-digit code.');
       return;
     }
 
@@ -55,16 +58,30 @@ export default function OTPVerification() {
     try {
       await authAPI.verifyOTP(phone, code, purpose);
       
-      if (purpose === 'reset_password') {
-        alert('Password reset successfully (Placeholder). Please login again.');
+      setSuccessMsg('Account verified successfully! Redirecting to login...');
+      setTimeout(() => {
         navigate('/login');
-      } else {
-        navigate('/login');
-      }
+      }, 1500);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Verification failed. Please check your code.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!phone) return;
+    setResendStatus('Sending...');
+    try {
+      await fetch('/api/auth/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, purpose })
+      });
+      setResendStatus('Code resent successfully!');
+      setTimeout(() => setResendStatus(''), 3000);
+    } catch {
+      setResendStatus('Failed to resend code.');
     }
   };
 
@@ -77,6 +94,12 @@ export default function OTPVerification() {
         We have sent a 6-digit verification code to {phone || 'your phone'}.
       </p>
       
+      {successMsg && (
+        <div style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', border: '1px solid rgba(34, 197, 94, 0.2)' }}>
+          {successMsg}
+        </div>
+      )}
+
       {error && (
         <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
           {error}
@@ -119,8 +142,12 @@ export default function OTPVerification() {
 
       <div style={{ textAlign: 'center', fontSize: '0.85rem' }}>
         <span style={{ color: '#a1a1aa' }}>Didn't receive code? </span>
-        <button style={{ background: 'none', border: 'none', color: '#fff', fontWeight: '500', cursor: 'pointer', padding: 0 }}>
-          Resend
+        <button 
+          onClick={handleResend}
+          type="button"
+          style={{ background: 'none', border: 'none', color: '#fff', fontWeight: '500', cursor: 'pointer', padding: 0 }}
+        >
+          {resendStatus || 'Resend'}
         </button>
       </div>
     </div>

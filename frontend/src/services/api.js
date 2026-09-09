@@ -46,5 +46,17 @@ export const authAPI = {
     fetchAPI('/auth/otp/verify', {
       method: 'POST',
       body: JSON.stringify({ phone, code, purpose }),
-    })
+    }),
+
+  resetPassword: (phone, code, newPassword) =>
+    fetchAPI('/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code, new_password: newPassword }),
+    }),
+
+  refreshToken: (refreshToken) =>
+    fetchAPI('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }),
 };

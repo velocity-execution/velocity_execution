@@ -22,23 +22,24 @@ export default function Login() {
 
     try {
       const response = await authAPI.login(formData);
+      const authData = response?.data || response;
+      const user = authData?.user;
 
-      localStorage.setItem(
-        'access_token',
-        response.data.access_token
-      );
+      if (authData?.access_token) {
+        localStorage.setItem('access_token', authData.access_token);
+      }
 
-      localStorage.setItem(
-        'refresh_token',
-        response.data.refresh_token
-      );
+      if (authData?.refresh_token) {
+        localStorage.setItem('refresh_token', authData.refresh_token);
+      }
 
-      localStorage.setItem(
-        'user',
-        JSON.stringify(response.data.user)
-      );
+      if (user) {
+        localStorage.setItem('user', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('user');
+      }
 
-      if (response.data.user.role === 'seller') {
+      if (user?.role === 'seller') {
         navigate('/seller');
       } else {
         navigate('/');

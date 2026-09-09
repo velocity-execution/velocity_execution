@@ -10,6 +10,16 @@ export default function Home() {
     navigate('/login');
   };
 
+  const user = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('user')) || {};
+    } catch {
+      return {};
+    }
+  })();
+  const displayName = user.name || user.email?.split('@')[0] || user.phone || 'Trader';
+  const initials = displayName.slice(0, 2).toUpperCase();
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#050505', color: '#fff', padding: '2rem' }}>
       <header style={{
@@ -23,8 +33,11 @@ export default function Home() {
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600' }}>
-            JD
+            {initials}
           </div>
+          <button onClick={() => navigate(user?.role === 'seller' ? '/seller' : '/')} className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+            {user?.role === 'seller' ? 'Go to Seller Dashboard' : 'Go to Trading'}
+          </button>
           <button onClick={handleLogout} className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
             Logout
           </button>
@@ -38,22 +51,60 @@ export default function Home() {
         }}>
           <div style={{ position: 'absolute', top: '-50%', right: '-10%', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, rgba(0,0,0,0) 70%)', filter: 'blur(40px)', zIndex: 0 }}></div>
           <div style={{ position: 'relative', zIndex: 1 }}>
-            <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>Welcome back, John!</h1>
-            <p style={{ color: '#a1a1aa', fontSize: '1.1rem' }}>Your portfolio is up +2.4% today. Keep it going!</p>
+            <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>Welcome back, {displayName}!</h1>
+            <p style={{ color: '#a1a1aa', fontSize: '1.1rem' }}>
+              {user?.role === 'seller' 
+                ? 'Manage your merchant listings, track inventory, and view sales.'
+                : 'Access your real-time trading terminal and portfolio management.'}
+            </p>
           </div>
         </div>
 
-        {[1, 2, 3].map((item) => (
-          <div key={item} style={{
-            padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
-            minHeight: '200px', display: 'flex', flexDirection: 'column'
-          }}>
-            <h3 style={{ marginBottom: '1rem', color: '#a1a1aa', fontSize: '1rem' }}>Widget {item}</h3>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.1)' }}>
-              <span style={{ color: '#52525b' }}>Data Visualization</span>
+        {user?.role === 'seller' ? (
+          <>
+            <div onClick={() => navigate('/seller')} style={{
+              padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
+              minHeight: '160px', display: 'flex', flexDirection: 'column', cursor: 'pointer'
+            }}>
+              <h3 style={{ marginBottom: '0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: 600 }}>Seller Dashboard</h3>
+              <p style={{ color: '#a1a1aa', fontSize: '0.9rem' }}>View overall sales metrics, revenue, and recent store activity.</p>
             </div>
-          </div>
-        ))}
+
+            <div onClick={() => navigate('/seller/products')} style={{
+              padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
+              minHeight: '160px', display: 'flex', flexDirection: 'column', cursor: 'pointer'
+            }}>
+              <h3 style={{ marginBottom: '0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: 600 }}>My Products</h3>
+              <p style={{ color: '#a1a1aa', fontSize: '0.9rem' }}>Create, update, and manage product inventory and stock pricing.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div onClick={() => navigate('/markets')} style={{
+              padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
+              minHeight: '160px', display: 'flex', flexDirection: 'column', cursor: 'pointer'
+            }}>
+              <h3 style={{ marginBottom: '0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: 600 }}>Live Markets</h3>
+              <p style={{ color: '#a1a1aa', fontSize: '0.9rem' }}>View live order books, price tickers, and execute trades.</p>
+            </div>
+
+            <div onClick={() => navigate('/wallet')} style={{
+              padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
+              minHeight: '160px', display: 'flex', flexDirection: 'column', cursor: 'pointer'
+            }}>
+              <h3 style={{ marginBottom: '0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: 600 }}>Wallet & Balances</h3>
+              <p style={{ color: '#a1a1aa', fontSize: '0.9rem' }}>Deposit, withdraw, and track real wallet balances.</p>
+            </div>
+
+            <div onClick={() => navigate('/orders/open')} style={{
+              padding: '2rem', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)',
+              minHeight: '160px', display: 'flex', flexDirection: 'column', cursor: 'pointer'
+            }}>
+              <h3 style={{ marginBottom: '0.5rem', color: '#fff', fontSize: '1.2rem', fontWeight: 600 }}>Open Orders</h3>
+              <p style={{ color: '#a1a1aa', fontSize: '0.9rem' }}>Monitor active orders and cancel resting limit orders.</p>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

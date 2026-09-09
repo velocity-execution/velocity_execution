@@ -19,7 +19,7 @@ func mustHash(password string) string {
 func SeedUsers(db *gorm.DB) {
 	users := []entity.User{
 		{
-			FullName:     "Admin User",
+			FullName:     "Arthur Pendelton",
 			Email:        "admin@example.com",
 			Phone:        "1234567890",
 			HashPassword: mustHash("password"),
@@ -28,7 +28,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Seller User",
+			FullName:     "Nexus Hardware Solutions",
 			Email:        "seller@example.com",
 			Phone:        "1234567891",
 			HashPassword: mustHash("password"),
@@ -37,7 +37,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Apex Mining & Staking",
 			Email:        "seller1@example.com",
 			Phone:        "1234567892",
 			HashPassword: mustHash("password"),
@@ -46,7 +46,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Vanguard Enterprise Systems",
 			Email:        "seller2@example.com",
 			Phone:        "1234567893",
 			HashPassword: mustHash("password"),
@@ -55,7 +55,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Cipher Global Vaults",
 			Email:        "seller3@example.com",
 			Phone:        "1234567894",
 			HashPassword: mustHash("password"),
@@ -64,7 +64,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Alexander Vance",
 			Email:        "user1@example.com",
 			Phone:        "1234567895",
 			HashPassword: mustHash("password"),
@@ -73,7 +73,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Elena Rostova",
 			Email:        "user2@example.com",
 			Phone:        "1234567896",
 			HashPassword: mustHash("password"),
@@ -82,7 +82,7 @@ func SeedUsers(db *gorm.DB) {
 			IsVerified:   true,
 		},
 		{
-			FullName:     "Regular User",
+			FullName:     "Marcus Chen",
 			Email:        "user3@example.com",
 			Phone:        "1234567897",
 			HashPassword: mustHash("password"),
@@ -96,6 +96,12 @@ func SeedUsers(db *gorm.DB) {
 		if err := db.Where("email = ?", u.Email).First(&user).Error; err != nil {
 			fmt.Printf("Seeding user: %s\n", u.Email)
 			db.Create(&u)
+		} else {
+			// Update full name and role if existing record exists
+			db.Model(&user).Updates(map[string]interface{}{
+				"full_name": u.FullName,
+				"role":      u.Role,
+			})
 		}
 	}
 }

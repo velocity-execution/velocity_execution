@@ -3,6 +3,7 @@ import marketReducer from './marketSlice';
 import walletReducer from './walletSlice';
 import orderReducer from './orderSlice';
 import sellerReducer from './sellerSlice';
+import marketplaceReducer from './marketplaceSlice';
 
 export const store = configureStore({
   reducer: {
@@ -10,5 +11,6 @@ export const store = configureStore({
     wallet: walletReducer,
     order: orderReducer,
     seller: sellerReducer,
+    marketplace: marketplaceReducer,
   },
 });

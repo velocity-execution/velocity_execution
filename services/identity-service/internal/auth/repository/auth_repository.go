@@ -45,6 +45,9 @@ type AuthRepository interface {
 	// (used after a password reset to invalidate all active sessions).
 	DeleteAllUserRefreshTokens(userID uint) error
 
+	// DeleteExpiredRefreshTokens removes all expired refresh tokens from the DB.
+	DeleteExpiredRefreshTokens() error
+
 	// ── OTP ───────────────────────────────────────────────────
 
 	// CreateOTP persists a new OTP record. Any previous unused OTPs for the
@@ -148,6 +151,10 @@ func (r *authRepository) DeleteRefreshToken(token string) error {
 
 func (r *authRepository) DeleteAllUserRefreshTokens(userID uint) error {
 	return r.db.Where("user_id = ?", userID).Delete(&entity.RefreshToken{}).Error
+}
+
+func (r *authRepository) DeleteExpiredRefreshTokens() error {
+	return r.db.Where("expires_at < ?", time.Now()).Delete(&entity.RefreshToken{}).Error
 }
 
 // ── OTP ───────────────────────────────────────────────────────

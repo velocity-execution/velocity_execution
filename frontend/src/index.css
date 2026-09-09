@@ -82,3 +82,15 @@
 .btn-outline:hover {
   background-color: rgba(255,255,255,0.05);
 }
+
+/* Suppress any external TradingView watermarks, logos, or iframes */
+.tv-logo,
+[class*="tv-logo"],
+[class*="tradingview"],
+a[href*="tradingview"],
+iframe[src*="tradingview"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

@@ -295,8 +295,12 @@ func (uc *authUseCase) VerifyOTP(req dto.VerifyOTPRequest) error {
 func (uc *authUseCase) ForgotPassword(req dto.ForgotPasswordRequest) error {
 	user, err := uc.repo.FindUserByEmail(req.Phone)
 	if err != nil {
-		// Silently ignore — prevents email enumeration.
-		return nil
+		// Fallback: look up by phone number so users can provide their phone number
+		user, err = uc.repo.FindUserByPhone(req.Phone)
+		if err != nil {
+			// Silently ignore — prevents enumeration.
+			return nil
+		}
 	}
 	return uc.sendOTPToUser(user, entity.OTPPurposeResetPassword)
 }
