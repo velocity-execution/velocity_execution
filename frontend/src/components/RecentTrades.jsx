@@ -4,7 +4,7 @@ import { marketWs } from '../services/marketWs';
 import { X } from 'lucide-react';
 
 export default function RecentTrades({ symbol = 'BTCUSDT', onClose }) {
-  const cleanSymbol = symbol.replace('/', '').replace('_', '').toUpperCase();
+  const cleanSymbol = symbol.replace('/', '').trim().toUpperCase();
   const [trades, setTrades] = useState([]);
 
   useEffect(() => {

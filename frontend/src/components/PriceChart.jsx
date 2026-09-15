@@ -107,7 +107,7 @@ const generateTimeframeCandles = (symbol, interval, currentPrice) => {
 };
 
 export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalPrice = 0 }) {
-  const cleanSymbol = useMemo(() => symbol.replace('/', '').replace('_', '').toUpperCase(), [symbol]);
+  const cleanSymbol = useMemo(() => symbol.replace('/', '').trim().toUpperCase(), [symbol]);
 
   const [chartMode, setChartMode] = useState('candles'); // 'candles' | 'area'
   const [interval, setInterval] = useState('15m');

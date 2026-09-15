@@ -3,7 +3,7 @@ import { marketApi } from '../api/marketApi';
 import { marketWs } from '../services/marketWs';
 
 export default function OrderBook({ symbol = 'BTCUSDT', currentPrice, onToggleTrades }) {
-  const cleanSymbol = symbol.replace('/', '').replace('_', '').toUpperCase();
+  const cleanSymbol = symbol.replace('/', '').trim().toUpperCase();
   const [orderBook, setOrderBook] = useState({ bids: [], asks: [] });
   const [loading, setLoading] = useState(true);
 

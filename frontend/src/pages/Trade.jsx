@@ -19,12 +19,8 @@ export default function Trade() {
   
   const { symbols: reduxSymbols } = useSelector((state) => state.market);
   const [symbolsList, setSymbolsList] = useState([]);
-  
-  const cleanSymbol = (symbol || DEFAULT_SYMBOL).replace('/', '').replace('_', '').toUpperCase();
-
   const [ticker, setTicker] = useState(null);
   const [stats, setStats] = useState(null);
-  const [liveMarket, setLiveMarket] = useState(null);
   const [showRecentTrades, setShowRecentTrades] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -46,15 +42,16 @@ export default function Trade() {
     else if (reduxSymbols && reduxSymbols.length > 0) sourceList = reduxSymbols;
     else {
       sourceList = [
-        { symbol: 'CTGUSDT', display_name: 'catrige / USDT', base_asset: 'CTG', quote_asset: 'USDT', price: 100.25 },
-        { symbol: 'VAL-RACKUSDT', display_name: 'Enterprise Edge Validator Rack / USDT', base_asset: 'VAL-RACK', quote_asset: 'USDT', price: 1450.00 },
-        { symbol: 'LEDGER-STXUSDT', display_name: 'Ledger Stax Hardware Wallet / USDT', base_asset: 'LEDGER-STX', quote_asset: 'USDT', price: 277.69 },
-        { symbol: 'S21-PROUSDT', display_name: 'Antminer S21 Pro Miner / USDT', base_asset: 'S21-PRO', quote_asset: 'USDT', price: 3800.00 },
-        { symbol: 'H100-NODEUSDT', display_name: 'Velocity GPU Cloud Node / USDT', base_asset: 'H100-NODE', quote_asset: 'USDT', price: 2500.00 },
-        { symbol: 'RPI5-NODEUSDT', display_name: 'Raspberry Pi 5 Staking Cluster / USDT', base_asset: 'RPI5-NODE', quote_asset: 'USDT', price: 280.00 },
-        { symbol: 'RTX-4090USDT', display_name: 'NVIDIA RTX 4090 Workstation Rig / USDT', base_asset: 'RTX-4090', quote_asset: 'USDT', price: 3200.00 },
-        { symbol: 'STARLINKUSDT', display_name: 'Starlink High Performance Kit / USDT', base_asset: 'STARLINK', quote_asset: 'USDT', price: 599.00 },
-        { symbol: 'YUBI-5CUSDT', display_name: 'YubiKey 5C NFC Security Key / USDT', base_asset: 'YUBI-5C', quote_asset: 'USDT', price: 55.00 },
+        { symbol: 'CTG_USDT', display_name: 'catrige / USDT', base_asset: 'CTG', quote_asset: 'USDT', price: 100.25 },
+        { symbol: 'VAL-RACK_USDT', display_name: 'Enterprise Edge Validator Rack / USDT', base_asset: 'VAL-RACK', quote_asset: 'USDT', price: 1450.00 },
+        { symbol: 'LEDGER-STX_USDT', display_name: 'Ledger Stax Hardware Wallet / USDT', base_asset: 'LEDGER-STX', quote_asset: 'USDT', price: 277.69 },
+        { symbol: 'S21-PRO_USDT', display_name: 'Antminer S21 Pro Miner / USDT', base_asset: 'S21-PRO', quote_asset: 'USDT', price: 3800.00 },
+        { symbol: 'H100-NODE_USDT', display_name: 'Velocity GPU Cloud Node / USDT', base_asset: 'H100-NODE', quote_asset: 'USDT', price: 2500.00 },
+        { symbol: 'RPI5-NODE_USDT', display_name: 'Raspberry Pi 5 Staking Cluster / USDT', base_asset: 'RPI5-NODE', quote_asset: 'USDT', price: 280.00 },
+        { symbol: 'RTX-4090_USDT', display_name: 'NVIDIA RTX 4090 Workstation Rig / USDT', base_asset: 'RTX-4090', quote_asset: 'USDT', price: 3200.00 },
+        { symbol: 'STARLINK_USDT', display_name: 'Starlink High Performance Kit / USDT', base_asset: 'STARLINK', quote_asset: 'USDT', price: 599.00 },
+        { symbol: 'YUBI-5C_USDT', display_name: 'YubiKey 5C NFC Security Key / USDT', base_asset: 'YUBI-5C', quote_asset: 'USDT', price: 55.00 },
+        { symbol: 'APPL-VP_USDT', display_name: 'Apple Vision Pro Dev Kit / USDT', base_asset: 'APPL-VP', quote_asset: 'USDT', price: 3499.00 },
       ];
     }
 
@@ -70,9 +67,20 @@ export default function Trade() {
     return unique;
   }, [symbolsList, reduxSymbols]);
 
+  // Match requested symbol to valid symbol in availablePairs
+  const activePair = useMemo(() => {
+    const req = (symbol || DEFAULT_SYMBOL).replace('/', '').trim().toUpperCase();
+    return availablePairs.find((p) => {
+      const s = (p.symbol || p || '').toUpperCase();
+      return s === req || s.replace(/_/g, '') === req.replace(/_/g, '');
+    }) || availablePairs[0];
+  }, [symbol, availablePairs]);
+
+  const cleanSymbol = activePair?.symbol || (symbol || DEFAULT_SYMBOL).replace('/', '').trim().toUpperCase();
+
   // If user hits an old crypto symbol or invalid symbol, redirect to first valid database product
   useEffect(() => {
-    if (['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].includes(cleanSymbol)) {
+    if (['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].includes(cleanSymbol.replace(/_/g, ''))) {
       const target = availablePairs[0]?.symbol || DEFAULT_SYMBOL;
       navigate(`/trade/${target}`, { replace: true });
     }

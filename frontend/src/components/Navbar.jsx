@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { resetMarketplaceState } from '../store/marketplaceSlice';
-import { Activity, Wallet, BarChart2, Clock, ListOrdered, Search, User, LogOut, Store, Package, ChevronDown, ShoppingBag, Boxes } from 'lucide-react';
+import { Activity, Wallet, BarChart2, Clock, ListOrdered, User, LogOut, Store, Package, ChevronDown, ShoppingBag, Boxes } from 'lucide-react';
 import ProfileModal from './ProfileModal';
 
 export default function Navbar() {
@@ -105,15 +105,6 @@ export default function Navbar() {
         </div>
         
         <div className="flex items-center gap-4">
-          <div className="relative hidden lg:block">
-            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search markets..." 
-              className="bg-[#0f172a] text-sm text-white rounded-md pl-9 pr-4 py-1.5 border border-border focus:outline-none focus:border-primary transition-colors"
-            />
-          </div>
-
           {/* Profile Dropdown */}
           <div className="relative" ref={dropdownRef}>
             <button
