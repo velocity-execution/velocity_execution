@@ -10,7 +10,7 @@ import OrderForm from '../components/OrderForm';
 import RecentTrades from '../components/RecentTrades';
 import { TrendingUp, TrendingDown, ChevronDown, Activity, Layers } from 'lucide-react';
 
-const DEFAULT_SYMBOL = 'CTGUSDT';
+const DEFAULT_SYMBOL = 'CTG_USDT';
 
 export default function Trade() {
   const { symbol = DEFAULT_SYMBOL } = useParams();
@@ -35,25 +35,24 @@ export default function Trade() {
     }).catch(() => {});
   }, [dispatch]);
 
-  // Combine redux symbols and local symbols list with strict deduplication
-  const availablePairs = useMemo(() => {
+  // Track selected/clicked symbols history to hoist active item to 1st position (e.g. A, B, C, D -> click B -> B, A, C, D -> click D -> D, B, A, C)
+  const [selectedHistory, setSelectedHistory] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('velocity_trade_mru');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Base list ordered by:
+  // 1. Most stocks first (stock > 0, stock DESC)
+  // 2. Recent sell orders / trades (latest_trade_time DESC)
+  // 3. Other platform symbols for analysis
+  const baseAvailablePairs = useMemo(() => {
     let sourceList = [];
     if (symbolsList.length > 0) sourceList = symbolsList;
     else if (reduxSymbols && reduxSymbols.length > 0) sourceList = reduxSymbols;
-    else {
-      sourceList = [
-        { symbol: 'CTG_USDT', display_name: 'catrige / USDT', base_asset: 'CTG', quote_asset: 'USDT', price: 100.25 },
-        { symbol: 'VAL-RACK_USDT', display_name: 'Enterprise Edge Validator Rack / USDT', base_asset: 'VAL-RACK', quote_asset: 'USDT', price: 1450.00 },
-        { symbol: 'LEDGER-STX_USDT', display_name: 'Ledger Stax Hardware Wallet / USDT', base_asset: 'LEDGER-STX', quote_asset: 'USDT', price: 277.69 },
-        { symbol: 'S21-PRO_USDT', display_name: 'Antminer S21 Pro Miner / USDT', base_asset: 'S21-PRO', quote_asset: 'USDT', price: 3800.00 },
-        { symbol: 'H100-NODE_USDT', display_name: 'Velocity GPU Cloud Node / USDT', base_asset: 'H100-NODE', quote_asset: 'USDT', price: 2500.00 },
-        { symbol: 'RPI5-NODE_USDT', display_name: 'Raspberry Pi 5 Staking Cluster / USDT', base_asset: 'RPI5-NODE', quote_asset: 'USDT', price: 280.00 },
-        { symbol: 'RTX-4090_USDT', display_name: 'NVIDIA RTX 4090 Workstation Rig / USDT', base_asset: 'RTX-4090', quote_asset: 'USDT', price: 3200.00 },
-        { symbol: 'STARLINK_USDT', display_name: 'Starlink High Performance Kit / USDT', base_asset: 'STARLINK', quote_asset: 'USDT', price: 599.00 },
-        { symbol: 'YUBI-5C_USDT', display_name: 'YubiKey 5C NFC Security Key / USDT', base_asset: 'YUBI-5C', quote_asset: 'USDT', price: 55.00 },
-        { symbol: 'APPL-VP_USDT', display_name: 'Apple Vision Pro Dev Kit / USDT', base_asset: 'APPL-VP', quote_asset: 'USDT', price: 3499.00 },
-      ];
-    }
 
     const seen = new Set();
     const unique = [];
@@ -64,19 +63,111 @@ export default function Trade() {
         unique.push(typeof item === 'string' ? { symbol: sym, display_name: `${sym}/USDT` } : item);
       }
     }
-    return unique;
+
+    return unique.sort((a, b) => {
+      const stockA = Number(a.stock || 0);
+      const stockB = Number(b.stock || 0);
+      const hasStockA = stockA > 0 ? 1 : 0;
+      const hasStockB = stockB > 0 ? 1 : 0;
+      if (hasStockB !== hasStockA) {
+        return hasStockB - hasStockA; // Items with stock first
+      }
+      if (stockB !== stockA) {
+        return stockB - stockA; // Most stock first
+      }
+      const tradeA = Number(a.latest_trade_time || 0);
+      const tradeB = Number(b.latest_trade_time || 0);
+      const hasTradeA = tradeA > 0 ? 1 : 0;
+      const hasTradeB = tradeB > 0 ? 1 : 0;
+      if (hasTradeB !== hasTradeA) {
+        return hasTradeB - hasTradeA; // Recent sell orders / trades next
+      }
+      if (tradeB !== tradeA) {
+        return tradeB - tradeA;
+      }
+      return 0; // Preserve catalog order (do not force alphabetical)
+    });
   }, [symbolsList, reduxSymbols]);
 
-  // Match requested symbol to valid symbol in availablePairs
+  // Match requested symbol to valid symbol in baseAvailablePairs
   const activePair = useMemo(() => {
     const req = (symbol || DEFAULT_SYMBOL).replace('/', '').trim().toUpperCase();
-    return availablePairs.find((p) => {
+    return baseAvailablePairs.find((p) => {
       const s = (p.symbol || p || '').toUpperCase();
       return s === req || s.replace(/_/g, '') === req.replace(/_/g, '');
-    }) || availablePairs[0];
-  }, [symbol, availablePairs]);
+    }) || baseAvailablePairs[0];
+  }, [symbol, baseAvailablePairs]);
 
   const cleanSymbol = activePair?.symbol || (symbol || DEFAULT_SYMBOL).replace('/', '').trim().toUpperCase();
+
+  // Track clicked/selected symbol history: currently active symbol is placed at index 0
+  useEffect(() => {
+    if (!cleanSymbol) return;
+    setSelectedHistory((prev) => {
+      const filtered = prev.filter((s) => s.toUpperCase() !== cleanSymbol.toUpperCase());
+      const updated = [cleanSymbol.toUpperCase(), ...filtered];
+      try {
+        sessionStorage.setItem('velocity_trade_mru', JSON.stringify(updated.slice(0, 30)));
+      } catch {}
+      return updated;
+    });
+  }, [cleanSymbol]);
+
+  // Handler for user clicking/selecting any symbol in dropdown:
+  // Immediately hoists clicked item to index 0, followed by previously clicked items
+  const handleSymbolChange = (newSym) => {
+    if (!newSym) return;
+    const sym = newSym.toUpperCase();
+    setSelectedHistory((prev) => {
+      const filtered = prev.filter((s) => s.toUpperCase() !== sym);
+      const updated = [sym, ...filtered];
+      try {
+        sessionStorage.setItem('velocity_trade_mru', JSON.stringify(updated.slice(0, 30)));
+      } catch {}
+      return updated;
+    });
+    navigate(`/trade/${newSym}`);
+  };
+
+  // Dynamic user-clicked order:
+  // When user clicks B -> [B, A, C, D]
+  // Then user clicks D -> [D, B, A, C]
+  const availablePairs = useMemo(() => {
+    if (baseAvailablePairs.length === 0) return [];
+
+    const pairMap = new Map();
+    for (const p of baseAvailablePairs) {
+      const sym = (p.symbol || p || '').toUpperCase();
+      pairMap.set(sym, p);
+    }
+
+    const hoisted = [];
+    const used = new Set();
+
+    // Priority 0: Ensure active cleanSymbol is at index 0, followed by prior selection history
+    const effectiveHistory = cleanSymbol
+      ? [cleanSymbol, ...selectedHistory.filter((s) => s.toUpperCase() !== cleanSymbol.toUpperCase())]
+      : selectedHistory;
+
+    // Hoisted symbols in order of selection recency
+    for (const sym of effectiveHistory) {
+      if (pairMap.has(sym) && !used.has(sym)) {
+        hoisted.push(pairMap.get(sym));
+        used.add(sym);
+      }
+    }
+
+    // Followed by the rest of the available products in priority order
+    for (const p of baseAvailablePairs) {
+      const sym = (p.symbol || p || '').toUpperCase();
+      if (!used.has(sym)) {
+        hoisted.push(p);
+        used.add(sym);
+      }
+    }
+
+    return hoisted;
+  }, [baseAvailablePairs, selectedHistory, cleanSymbol]);
 
   // If user hits an old crypto symbol or invalid symbol, redirect to first valid database product
   useEffect(() => {
@@ -175,16 +266,18 @@ export default function Trade() {
           <div className="flex items-center gap-3">
             <select
               value={cleanSymbol}
-              onChange={(e) => navigate(`/trade/${e.target.value}`)}
-              className="bg-background border border-border text-white text-base font-bold px-3 py-1.5 rounded-lg focus:outline-none focus:border-primary cursor-pointer max-w-[260px]"
+              onChange={(e) => handleSymbolChange(e.target.value)}
+              className="bg-background border border-border text-white text-base font-bold px-3 py-1.5 rounded-lg focus:outline-none focus:border-primary cursor-pointer max-w-[340px]"
             >
               {availablePairs.map((p) => {
                 const sym = p.symbol || p;
-                const base = p.base_asset || sym.replace('USDT', '');
+                const base = p.base_asset || sym.replace('_USDT', '').replace('USDT', '');
                 const quote = p.quote_asset || 'USDT';
+                const rawTitle = p.display_name ? p.display_name.split('/')[0]?.trim() : '';
+                const nameLabel = rawTitle && rawTitle !== base ? `(${rawTitle})` : '';
                 return (
                   <option key={sym} value={sym}>
-                    {base}/{quote} {p.display_name ? `(${p.display_name.split('/')[0]?.trim()})` : ''}
+                    {base}/{quote} {nameLabel}
                   </option>
                 );
               })}

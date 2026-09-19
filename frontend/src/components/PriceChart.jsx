@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { createChart, CandlestickSeries, AreaSeries, HistogramSeries, ColorType } from 'lightweight-charts';
+import { createChart, CandlestickSeries, AreaSeries, HistogramSeries, ColorType, LineStyle } from 'lightweight-charts';
 import { marketApi } from '../api/marketApi';
 import { marketWs } from '../services/marketWs';
-import { BarChart2, TrendingUp, Activity, RefreshCw, PenTool, Trash2 } from 'lucide-react';
+import { BarChart2, TrendingUp, Activity, RefreshCw, PenTool, Trash2, Plus, Minus, Maximize2 } from 'lucide-react';
 
 const INTERVALS = [
   { label: '1m', value: '1m' },
   { label: '5m', value: '5m' },
   { label: '15m', value: '15m' },
+  { label: '30m', value: '30m' },
   { label: '1h', value: '1h' },
-  { label: '4h', value: '4h' },
   { label: '1D', value: '1d' },
 ];
 
@@ -18,92 +18,12 @@ const getIntervalSeconds = (intVal) => {
     case '1m': return 60;
     case '5m': return 300;
     case '15m': return 900;
+    case '30m': return 1800;
     case '1h': return 3600;
     case '4h': return 14400;
     case '1d': return 86400;
     default: return 900;
   }
-};
-
-// Dynamic timeframe-aware candle generator
-const generateTimeframeCandles = (symbol, interval, currentPrice) => {
-  if (!currentPrice || currentPrice <= 0) return { candles: [], volumes: [] };
-
-  const stepSec = getIntervalSeconds(interval);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const nowBucket = Math.floor(nowSec / stepSec) * stepSec;
-
-  // Interval-specific volatility and candle count
-  const config = {
-    '1m':  { bars: 60, vol: 0.0025, noiseFreq: 0.9, trendFreq: 0.18 },
-    '5m':  { bars: 60, vol: 0.0065, noiseFreq: 0.7, trendFreq: 0.14 },
-    '15m': { bars: 60, vol: 0.0130, noiseFreq: 0.6, trendFreq: 0.11 },
-    '1h':  { bars: 50, vol: 0.0260, noiseFreq: 0.5, trendFreq: 0.08 },
-    '4h':  { bars: 40, vol: 0.0480, noiseFreq: 0.4, trendFreq: 0.06 },
-    '1d':  { bars: 30, vol: 0.0850, noiseFreq: 0.3, trendFreq: 0.04 },
-  }[interval] || { bars: 50, vol: 0.015, noiseFreq: 0.6, trendFreq: 0.1 };
-
-  // Deterministic seed based on symbol + interval characters
-  let seed = 0;
-  for (let i = 0; i < symbol.length; i++) seed = (seed * 31 + symbol.charCodeAt(i)) % 10007;
-  for (let i = 0; i < interval.length; i++) seed = (seed * 17 + interval.charCodeAt(i)) % 10007;
-
-  const count = config.bars;
-  const vol = config.vol * currentPrice;
-
-  // Generate smooth price path that terminates exactly at currentPrice at index count - 1
-  const rawPrices = [];
-  for (let k = 0; k < count; k++) {
-    const cycle1 = Math.sin((k + seed * 0.1) * config.trendFreq);
-    const cycle2 = Math.cos((k + seed * 0.2) * config.noiseFreq) * 0.5;
-    const cycle3 = Math.sin((k + seed * 0.3) * (config.trendFreq * 2.3)) * 0.35;
-    rawPrices.push(cycle1 + cycle2 + cycle3);
-  }
-
-  const endRaw = rawPrices[count - 1];
-  const candles = [];
-  const volumes = [];
-
-  let prevClose = currentPrice;
-  for (let k = 0; k < count; k++) {
-    const time = nowBucket - (count - 1 - k) * stepSec;
-    // Align so the final candle close matches currentPrice
-    const diffFromEnd = (rawPrices[k] - endRaw) * vol;
-    const targetClose = k === count - 1
-      ? Math.round(currentPrice * 100) / 100
-      : Math.max(0.01, Math.round((currentPrice + diffFromEnd) * 100) / 100);
-
-    const open = k === 0
-      ? Math.max(0.01, Math.round((targetClose - vol * 0.25) * 100) / 100)
-      : prevClose;
-    const close = targetClose;
-    prevClose = close;
-
-    const barRange = Math.abs(close - open);
-    const wickSpread = Math.max(vol * 0.3, barRange * 0.4);
-    const high = Math.round((Math.max(open, close) + wickSpread) * 100) / 100;
-    const low = Math.max(0.01, Math.round((Math.min(open, close) - wickSpread) * 100) / 100);
-
-    const baseVol = interval === '1d' ? 600 : (interval === '1h' ? 150 : (interval === '5m' ? 40 : 15));
-    const volVal = Math.round(baseVol * (1 + Math.abs(Math.sin(k * 0.7 + seed)) * 1.5));
-
-    candles.push({
-      time,
-      open,
-      high,
-      low,
-      close,
-      value: close, // For Area/Line series
-    });
-
-    volumes.push({
-      time,
-      value: volVal,
-      color: close >= open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
-    });
-  }
-
-  return { candles, volumes };
 };
 
 export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalPrice = 0 }) {
@@ -127,6 +47,52 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
   const mainSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
   const lastCandleRef = useRef(null);
+  const realPriceLineRef = useRef(null);
+  // Preserves 100% genuine real trade OHLC values for sheet, tooltips, legend & crosshairs
+  const candleMapRef = useRef(new Map());
+
+  // Updates dedicated price line so the price scale badge accurately reads the real execution price
+  const updatePriceLine = useCallback((price, isBullishArg) => {
+    if (!mainSeriesRef.current || !price || Number(price) <= 0) return;
+    if (realPriceLineRef.current) {
+      try {
+        mainSeriesRef.current.removePriceLine(realPriceLineRef.current);
+      } catch { }
+      realPriceLineRef.current = null;
+    }
+    const last = lastCandleRef.current;
+    const isBullish = typeof isBullishArg === 'boolean'
+      ? isBullishArg
+      : (last ? (last.isBullish !== undefined ? last.isBullish : Number(last.close) >= Number(last.open)) : true);
+    try {
+      realPriceLineRef.current = mainSeriesRef.current.createPriceLine({
+        price: Number(price),
+        color: isBullish ? '#10b981' : '#ef4444',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: '',
+      });
+    } catch { }
+  }, []);
+
+  // Zoom and Scale Helpers (normal standard bar spacing)
+  const handleZoomIn = () => {
+    if (!chartInstanceRef.current) return;
+    const current = chartInstanceRef.current.timeScale().options().barSpacing || 16;
+    chartInstanceRef.current.timeScale().applyOptions({ barSpacing: Math.min(current * 1.3, 60) });
+  };
+
+  const handleZoomOut = () => {
+    if (!chartInstanceRef.current) return;
+    const current = chartInstanceRef.current.timeScale().options().barSpacing || 16;
+    chartInstanceRef.current.timeScale().applyOptions({ barSpacing: Math.max(current / 1.3, 5) });
+  };
+
+  const handleFitContent = () => {
+    if (!chartInstanceRef.current) return;
+    chartInstanceRef.current.timeScale().fitContent();
+  };
 
   // Helper to format UNIX seconds cleanly
   const formatTime = (isoString, fallbackTimeSec) => {
@@ -186,9 +152,27 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         fontSize: 11,
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       },
+      localization: {
+        locale: 'en-IN',
+        dateFormat: 'dd MMM yyyy',
+        timeFormatter: (time) => {
+          const timestampSec = typeof time === 'number'
+            ? time
+            : (time?.year ? Math.floor(new Date(Date.UTC(time.year, time.month - 1, time.day)).getTime() / 1000) : 0);
+          if (!timestampSec) return '';
+          return new Date(timestampSec * 1000).toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }) + ' IST';
+        },
+      },
       grid: {
-        vertLines: { color: 'rgba(51, 65, 85, 0.15)' },
-        horzLines: { color: 'rgba(51, 65, 85, 0.15)' },
+        vertLines: { color: 'rgba(51, 65, 85, 0.2)', style: LineStyle.Dotted },
+        horzLines: { color: 'rgba(51, 65, 85, 0.2)', style: LineStyle.Dotted },
       },
       crosshair: {
         vertLine: {
@@ -206,16 +190,56 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
       },
       rightPriceScale: {
         borderColor: 'rgba(51, 65, 85, 0.3)',
+        autoScale: true,
         scaleMargins: {
-          top: 0.08,
-          bottom: 0.22,
+          top: 0.12,
+          bottom: 0.12,
         },
       },
       timeScale: {
         borderColor: 'rgba(51, 65, 85, 0.3)',
         timeVisible: true,
         secondsVisible: false,
-        fixLeftEdge: true,
+        barSpacing: 16,
+        minBarSpacing: 5,
+        rightOffset: 12,
+        fixLeftEdge: false,
+        tickMarkFormatter: (time, tickMarkType) => {
+          const timestampSec = typeof time === 'number'
+            ? time
+            : (time?.year ? Math.floor(new Date(Date.UTC(time.year, time.month - 1, time.day)).getTime() / 1000) : 0);
+          if (!timestampSec) return '';
+          const d = new Date(timestampSec * 1000);
+          if (tickMarkType === 0) {
+            return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric' });
+          }
+          if (tickMarkType === 1) {
+            return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short' });
+          }
+          if (tickMarkType === 2) {
+            return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' });
+          }
+          return d.toLocaleTimeString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+        },
+      },
+      handleScale: {
+        axisPressedMouseMove: {
+          time: true,
+          price: true,
+        },
+        mouseWheel: true,
+        pinch: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
       },
     });
 
@@ -230,6 +254,25 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         borderDownColor: '#ef4444',
         wickUpColor: '#10b981',
         wickDownColor: '#ef4444',
+        lastValueVisible: false, // Right-axis badge is governed by exact real-price line
+        autoscaleInfoProvider: (original) => {
+          const res = original();
+          if (res !== null && res.priceRange) {
+            const diff = res.priceRange.maxValue - res.priceRange.minValue;
+            const mid = (res.priceRange.maxValue + res.priceRange.minValue) / 2;
+            const minSpread = Math.max(mid * 0.05, 1.0);
+            if (diff < minSpread) {
+              return {
+                priceRange: {
+                  minValue: mid - minSpread / 2,
+                  maxValue: mid + minSpread / 2,
+                },
+                margins: res.margins,
+              };
+            }
+          }
+          return res;
+        },
       });
       mainSeriesRef.current = candleSeries;
     } else {
@@ -238,39 +281,70 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         bottomColor: 'rgba(56, 189, 248, 0.0)',
         lineColor: '#38bdf8',
         lineWidth: 2,
+        autoscaleInfoProvider: (original) => {
+          const res = original();
+          if (res !== null && res.priceRange) {
+            const diff = res.priceRange.maxValue - res.priceRange.minValue;
+            const mid = (res.priceRange.maxValue + res.priceRange.minValue) / 2;
+            const minSpread = Math.max(mid * 0.05, 1.0);
+            if (diff < minSpread) {
+              return {
+                priceRange: {
+                  minValue: mid - minSpread / 2,
+                  maxValue: mid + minSpread / 2,
+                },
+                margins: res.margins,
+              };
+            }
+          }
+          return res;
+        },
       });
       mainSeriesRef.current = areaSeries;
     }
 
-    // Add Volume Histogram Series
+    // Add Volume Histogram Series (isolated to volume_scale so it doesn't pollute price scale)
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
-      priceScaleId: '', // Overlay over chart
+      priceScaleId: 'volume_scale',
     });
-    volumeSeries.priceScale().applyOptions({
+    chart.priceScale('volume_scale').applyOptions({
       scaleMargins: {
-        top: 0.82,
+        top: 0.86,
         bottom: 0,
       },
     });
     volumeSeriesRef.current = volumeSeries;
 
-    // Handle crosshair hover legend
+    // Handle crosshair hover legend: Reads genuine real trade OHLC from candleMapRef
     chart.subscribeCrosshairMove((param) => {
-      if (!param || !param.time || !param.seriesData) {
+      if (!param || !param.time) {
         setHoverData(null);
         return;
       }
-      const priceData = param.seriesData.get(mainSeriesRef.current);
-      const volData = param.seriesData.get(volumeSeriesRef.current);
-      if (priceData) {
+      const realCandle = candleMapRef.current.get(param.time);
+      if (realCandle) {
         setHoverData({
-          open: priceData.open ?? priceData.value,
-          high: priceData.high ?? priceData.value,
-          low: priceData.low ?? priceData.value,
-          close: priceData.close ?? priceData.value,
-          volume: volData?.value ?? null,
+          time: param.time,
+          open: realCandle.open,
+          high: realCandle.high,
+          low: realCandle.low,
+          close: realCandle.close,
+          volume: realCandle.volume ?? 0,
         });
+      } else if (param.seriesData) {
+        const priceData = param.seriesData.get(mainSeriesRef.current);
+        const volData = param.seriesData.get(volumeSeriesRef.current);
+        if (priceData) {
+          setHoverData({
+            time: param.time,
+            open: priceData.open ?? priceData.value,
+            high: priceData.high ?? priceData.value,
+            low: priceData.low ?? priceData.value,
+            close: priceData.close ?? priceData.value,
+            volume: volData?.value ?? null,
+          });
+        }
       }
     });
 
@@ -291,9 +365,111 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         chartInstanceRef.current = null;
         mainSeriesRef.current = null;
         volumeSeriesRef.current = null;
+        realPriceLineRef.current = null;
       }
     };
   }, [chartMode]);
+
+  // Converts raw backend candles into visual rendering data while keeping 100% genuine real trade OHLC in candleMapRef
+  const formatCandleData = useCallback((sortedCandles, currentPrice) => {
+    candleMapRef.current.clear();
+    const formattedCandles = [];
+    const formattedVolumes = [];
+
+    for (let i = 0; i < sortedCandles.length; i++) {
+      const c = sortedCandles[i];
+      const timeSec = c.time;
+      const rawOpen = Number(c.open || c.close || currentPrice);
+      const rawClose = Number(c.close || rawOpen);
+      const rawHigh = Number(c.high || Math.max(rawOpen, rawClose));
+      const rawLow = Number(c.low || Math.min(rawOpen, rawClose));
+      const vol = Number(c.volume || 0);
+
+      const isFlat = Math.abs(rawHigh - rawLow) < 0.0001 || (rawHigh === rawLow && rawOpen === rawClose);
+
+      // Determine bullish vs bearish based on HOLC & price movement relative to prior trade
+      let isBullish = true;
+      if (rawClose > rawOpen) {
+        isBullish = true;
+      } else if (rawClose < rawOpen) {
+        isBullish = false;
+      } else {
+        // rawClose === rawOpen: Compare with previous trade price!
+        if (i > 0) {
+          const prevClose = Number(sortedCandles[i - 1].close || sortedCandles[i - 1].open || rawClose);
+          if (rawClose < prevClose) {
+            isBullish = false; // Price dropped from previous trade -> RED!
+          } else if (rawClose > prevClose) {
+            isBullish = true; // Price rose from previous trade -> GREEN!
+          } else {
+            if (rawHigh > rawClose && rawLow === rawClose) {
+              isBullish = false;
+            } else {
+              isBullish = true;
+            }
+          }
+        } else {
+          isBullish = true;
+        }
+      }
+
+      // 100% genuine real trade data stored for sheet, tooltips, legend & crosshairs
+      const realCandle = {
+        time: timeSec,
+        open: rawOpen,
+        high: rawHigh,
+        low: rawLow,
+        close: rawClose,
+        volume: vol,
+        isBullish,
+        isFlat,
+      };
+      candleMapRef.current.set(timeSec, realCandle);
+
+      const candleColor = isBullish ? '#10b981' : '#ef4444';
+
+      // For flat candles (same H O C L), render a clean solid body with proper bullish/bearish orientation
+      let visualOpen = rawOpen;
+      let visualClose = rawClose;
+      let visualHigh = rawHigh;
+      let visualLow = rawLow;
+
+      if (isFlat) {
+        const halfBody = Math.max(rawClose * 0.0015, 0.2);
+        if (isBullish) {
+          visualOpen = rawClose - halfBody;
+          visualClose = rawClose + halfBody;
+          visualHigh = visualClose;
+          visualLow = visualOpen;
+        } else {
+          visualOpen = rawClose + halfBody;
+          visualClose = rawClose - halfBody;
+          visualHigh = visualOpen;
+          visualLow = visualClose;
+        }
+      }
+
+      formattedCandles.push({
+        time: timeSec,
+        open: visualOpen,
+        high: visualHigh,
+        low: visualLow,
+        close: visualClose,
+        color: candleColor,
+        borderColor: candleColor,
+        wickColor: candleColor,
+        value: rawClose, // For Area mode
+      });
+
+      formattedVolumes.push({
+        time: timeSec,
+        value: vol,
+        color: isBullish ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+      });
+    }
+
+    return { formattedCandles, formattedVolumes };
+  }, []);
 
   // 2. Fetch Velocity Backend Candles and set data
   const loadCandleData = useCallback(async () => {
@@ -304,10 +480,40 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
 
       let candleList = [];
       try {
-        const res = await marketApi.getCandles(cleanSymbol, interval, 150);
+        const fetchInterval = interval === '30m' ? '15m' : interval;
+        const fetchLimit = interval === '30m' ? 300 : 150;
+        const res = await marketApi.getCandles(cleanSymbol, fetchInterval, fetchLimit);
         const raw = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
         if (raw && raw.length > 0) {
-          candleList = raw;
+          if (interval === '30m') {
+            const bucketMap = new Map();
+            const sorted15 = [...raw].sort((a, b) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
+            for (const c of sorted15) {
+              const d = new Date(c.open_time);
+              const sec = Math.floor(d.getTime() / 1000);
+              const bSec = Math.floor(sec / 1800) * 1800;
+              const bIso = new Date(bSec * 1000).toISOString();
+              const existing = bucketMap.get(bSec);
+              if (!existing) {
+                bucketMap.set(bSec, {
+                  open_time: bIso,
+                  open: Number(c.open || c.close),
+                  high: Number(c.high || c.close),
+                  low: Number(c.low || c.close),
+                  close: Number(c.close),
+                  volume: Number(c.volume || 0),
+                });
+              } else {
+                existing.high = Math.max(existing.high, Number(c.high || c.close));
+                existing.low = Math.min(existing.low, Number(c.low || c.close));
+                existing.close = Number(c.close);
+                existing.volume += Number(c.volume || 0);
+              }
+            }
+            candleList = Array.from(bucketMap.values());
+          } else {
+            candleList = raw;
+          }
         }
       } catch (err) {
         console.warn('[PriceChart] getCandles error:', err);
@@ -322,7 +528,7 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
           if (tData?.last_price) {
             currentPrice = Number(tData.last_price);
           }
-        } catch {}
+        } catch { }
       }
 
       // Apply dynamic timescale options based on interval
@@ -333,10 +539,9 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         });
       }
 
-      let formattedCandles = [];
-      let formattedVolumes = [];
       const nowSec = Math.floor(Date.now() / 1000);
       const nowBucket = Math.floor(nowSec / stepSec) * stepSec;
+      let rawPoints = [];
 
       if (candleList.length > 0) {
         const sorted = [...candleList].sort((a, b) => new Date(a.open_time).getTime() - new Date(b.open_time).getTime());
@@ -349,51 +554,54 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
             ? Math.floor(d.getTime() / 1000)
             : (nowBucket - (sorted.length - i) * stepSec);
 
-          let timeSec = Math.floor(parsedSec / stepSec) * stepSec;
+          let timeSec = parsedSec;
           if (timeSec <= lastTimeSec) {
             timeSec = lastTimeSec + stepSec;
           }
           lastTimeSec = timeSec;
 
-          const open = Number(c.open || c.close || currentPrice);
-          const high = Number(c.high || Math.max(open, Number(c.close || open)));
-          const low = Number(c.low || Math.min(open, Number(c.close || open)));
-          const close = Number(c.close || open);
-          const vol = Number(c.volume || 0);
-
-          formattedCandles.push({
+          rawPoints.push({
             time: timeSec,
-            open,
-            high,
-            low,
-            close,
-            value: close, // For Area mode
-          });
-
-          formattedVolumes.push({
-            time: timeSec,
-            value: vol,
-            color: close >= open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+            open: Number(c.open || c.close || currentPrice),
+            close: Number(c.close || c.open || currentPrice),
+            high: Number(c.high || Math.max(Number(c.open || currentPrice), Number(c.close || currentPrice))),
+            low: Number(c.low || Math.min(Number(c.open || currentPrice), Number(c.close || currentPrice))),
+            volume: Number(c.volume || 0),
           });
         }
       } else if (currentPrice > 0) {
-        // Generate dynamic timeframe-aware candles spaced strictly according to selected interval
-        const generated = generateTimeframeCandles(cleanSymbol, interval, currentPrice);
-        formattedCandles = generated.candles;
-        formattedVolumes = generated.volumes;
+        // If no past trades exist yet for this product, anchor 1 single real baseline point at current trade price (NO DUMMY CANDLES)
+        rawPoints = [
+          {
+            time: nowBucket,
+            open: currentPrice,
+            high: currentPrice,
+            low: currentPrice,
+            close: currentPrice,
+            volume: 0,
+          },
+        ];
       }
+
+      const { formattedCandles, formattedVolumes } = formatCandleData(rawPoints, currentPrice);
 
       if (mainSeriesRef.current && chartInstanceRef.current) {
         mainSeriesRef.current.setData(formattedCandles);
         if (volumeSeriesRef.current) {
           volumeSeriesRef.current.setData(formattedVolumes);
         }
-        chartInstanceRef.current.timeScale().fitContent();
+
+        chartInstanceRef.current.timeScale().applyOptions({
+          barSpacing: 16,
+          rightOffset: 12,
+        });
+        chartInstanceRef.current.timeScale().scrollToRealtime();
 
         if (formattedCandles.length > 0) {
-          const latest = formattedCandles[formattedCandles.length - 1];
-          lastCandleRef.current = latest;
-          setCurrentCandle(latest);
+          const latestReal = candleMapRef.current.get(formattedCandles[formattedCandles.length - 1].time) || formattedCandles[formattedCandles.length - 1];
+          lastCandleRef.current = latestReal;
+          setCurrentCandle(latestReal);
+          updatePriceLine(latestReal.close, latestReal.isBullish);
         }
       }
     } catch (err) {
@@ -401,7 +609,7 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
     } finally {
       setLoading(false);
     }
-  }, [cleanSymbol, interval, chartMode, externalPrice]);
+  }, [cleanSymbol, interval, chartMode, externalPrice, formatCandleData, updatePriceLine]);
 
   // Run on mount or symbol/interval/mode change
   useEffect(() => {
@@ -410,21 +618,82 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
 
   // React immediately to live price changes (e.g. order executed, buy product, ticker tick)
   useEffect(() => {
-    if (!externalPrice || Number(externalPrice) <= 0 || !mainSeriesRef.current || !lastCandleRef.current) return;
+    if (!externalPrice || Number(externalPrice) <= 0 || !mainSeriesRef.current) return;
     const newPrice = Number(externalPrice);
+
+    if (!lastCandleRef.current) {
+      loadCandleData();
+      return;
+    }
+
     if (lastCandleRef.current.close === newPrice && lastCandleRef.current.value === newPrice) return;
 
-    const updated = {
-      ...lastCandleRef.current,
-      close: newPrice,
-      value: newPrice,
-      high: Math.max(Number(lastCandleRef.current.high || newPrice), newPrice),
-      low: Math.min(Number(lastCandleRef.current.low || newPrice), newPrice),
+    const timeSec = lastCandleRef.current.time;
+    const rawOpen = Number(lastCandleRef.current.open || newPrice);
+    const rawHigh = Math.max(Number(lastCandleRef.current.high || newPrice), newPrice);
+    const rawLow = Math.min(Number(lastCandleRef.current.low || newPrice), newPrice);
+    const rawClose = newPrice;
+    const isFlat = Math.abs(rawHigh - rawLow) < 0.0001 || (rawHigh === rawLow && rawOpen === rawClose);
+
+    let isBullish = true;
+    if (rawClose > rawOpen) {
+      isBullish = true;
+    } else if (rawClose < rawOpen) {
+      isBullish = false;
+    } else {
+      isBullish = lastCandleRef.current.isBullish !== undefined ? lastCandleRef.current.isBullish : true;
+    }
+
+    const realCandle = {
+      time: timeSec,
+      open: rawOpen,
+      high: rawHigh,
+      low: rawLow,
+      close: rawClose,
+      volume: lastCandleRef.current.volume || 0,
+      isBullish,
+      isFlat,
     };
-    lastCandleRef.current = updated;
-    mainSeriesRef.current.update(updated);
-    setCurrentCandle(updated);
-  }, [externalPrice]);
+    candleMapRef.current.set(timeSec, realCandle);
+
+    const candleColor = isBullish ? '#10b981' : '#ef4444';
+    let visualOpen = rawOpen;
+    let visualClose = rawClose;
+    let visualHigh = rawHigh;
+    let visualLow = rawLow;
+
+    if (isFlat) {
+      const halfBody = Math.max(rawClose * 0.0015, 0.2);
+      if (isBullish) {
+        visualOpen = rawClose - halfBody;
+        visualClose = rawClose + halfBody;
+        visualHigh = visualClose;
+        visualLow = visualOpen;
+      } else {
+        visualOpen = rawClose + halfBody;
+        visualClose = rawClose - halfBody;
+        visualHigh = visualOpen;
+        visualLow = visualClose;
+      }
+    }
+
+    const visualUpdate = {
+      time: timeSec,
+      open: visualOpen,
+      high: visualHigh,
+      low: visualLow,
+      close: visualClose,
+      color: candleColor,
+      borderColor: candleColor,
+      wickColor: candleColor,
+      value: rawClose,
+    };
+
+    lastCandleRef.current = realCandle;
+    mainSeriesRef.current.update(visualUpdate);
+    setCurrentCandle(realCandle);
+    updatePriceLine(newPrice, isBullish);
+  }, [externalPrice, loadCandleData, updatePriceLine]);
 
   // 3. Real-Time WebSocket Subscription to Velocity Engine (/ws)
   useEffect(() => {
@@ -436,34 +705,82 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
       if (msg.type === 'kline' && msg.data) {
         const k = msg.data;
         const timeSec = formatTime(k.open_time, Math.floor(Date.now() / 1000));
-        const open = Number(k.open);
-        const high = Number(k.high);
-        const low = Number(k.low);
-        const close = Number(k.close);
+        const rawOpen = Number(k.open);
+        const rawHigh = Number(k.high);
+        const rawLow = Number(k.low);
+        const rawClose = Number(k.close);
         const volume = Number(k.volume || 0);
 
-        const candleUpdate = {
+        const isFlat = Math.abs(rawHigh - rawLow) < 0.0001 || (rawHigh === rawLow && rawOpen === rawClose);
+
+        let isBullish = true;
+        if (rawClose > rawOpen) {
+          isBullish = true;
+        } else if (rawClose < rawOpen) {
+          isBullish = false;
+        } else {
+          isBullish = lastCandleRef.current?.isBullish !== undefined ? lastCandleRef.current.isBullish : true;
+        }
+
+        const realCandle = {
           time: timeSec,
-          open,
-          high,
-          low,
-          close,
-          value: close,
+          open: rawOpen,
+          high: rawHigh,
+          low: rawLow,
+          close: rawClose,
+          volume,
+          isBullish,
+          isFlat,
+        };
+        candleMapRef.current.set(timeSec, realCandle);
+
+        const candleColor = isBullish ? '#10b981' : '#ef4444';
+        let visualOpen = rawOpen;
+        let visualClose = rawClose;
+        let visualHigh = rawHigh;
+        let visualLow = rawLow;
+
+        if (isFlat) {
+          const halfBody = Math.max(rawClose * 0.0015, 0.2);
+          if (isBullish) {
+            visualOpen = rawClose - halfBody;
+            visualClose = rawClose + halfBody;
+            visualHigh = visualClose;
+            visualLow = visualOpen;
+          } else {
+            visualOpen = rawClose + halfBody;
+            visualClose = rawClose - halfBody;
+            visualHigh = visualOpen;
+            visualLow = visualClose;
+          }
+        }
+
+        const visualUpdate = {
+          time: timeSec,
+          open: visualOpen,
+          high: visualHigh,
+          low: visualLow,
+          close: visualClose,
+          color: candleColor,
+          borderColor: candleColor,
+          wickColor: candleColor,
+          value: rawClose,
         };
 
         if (mainSeriesRef.current) {
-          mainSeriesRef.current.update(candleUpdate);
+          mainSeriesRef.current.update(visualUpdate);
         }
         if (volumeSeriesRef.current) {
           volumeSeriesRef.current.update({
             time: timeSec,
             value: volume,
-            color: close >= open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+            color: isBullish ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
           });
         }
 
-        lastCandleRef.current = candleUpdate;
-        setCurrentCandle(candleUpdate);
+        lastCandleRef.current = realCandle;
+        setCurrentCandle(realCandle);
+        updatePriceLine(rawClose, isBullish);
       }
 
       // B. Real-Time Trade update
@@ -474,37 +791,110 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
 
         if (lastCandleRef.current) {
           const current = { ...lastCandleRef.current };
+          current.high = Math.max(Number(current.high || tradePrice), tradePrice);
+          current.low = Math.min(Number(current.low || tradePrice), tradePrice);
+          const prevClose = Number(current.close || tradePrice);
           current.close = tradePrice;
-          current.high = Math.max(current.high, tradePrice);
-          current.low = Math.min(current.low, tradePrice);
           current.value = tradePrice;
+          current.volume = (current.volume || 0) + tradeQty;
+          current.isFlat = Math.abs(current.high - current.low) < 0.0001;
+
+          let isBullish = true;
+          if (tradePrice > current.open) {
+            isBullish = true;
+          } else if (tradePrice < current.open) {
+            isBullish = false;
+          } else {
+            if (tradePrice < prevClose) {
+              isBullish = false;
+            } else if (tradePrice > prevClose) {
+              isBullish = true;
+            } else {
+              isBullish = current.isBullish !== undefined ? current.isBullish : true;
+            }
+          }
+          current.isBullish = isBullish;
+
+          candleMapRef.current.set(current.time, current);
+
+          const candleColor = isBullish ? '#10b981' : '#ef4444';
+          let visualOpen = current.open;
+          let visualClose = tradePrice;
+          let visualHigh = current.high;
+          let visualLow = current.low;
+
+          if (current.isFlat) {
+            const halfBody = Math.max(tradePrice * 0.0015, 0.2);
+            if (isBullish) {
+              visualOpen = tradePrice - halfBody;
+              visualClose = tradePrice + halfBody;
+              visualHigh = visualClose;
+              visualLow = visualOpen;
+            } else {
+              visualOpen = tradePrice + halfBody;
+              visualClose = tradePrice - halfBody;
+              visualHigh = visualOpen;
+              visualLow = visualClose;
+            }
+          }
+
+          const visualUpdate = {
+            time: current.time,
+            open: visualOpen,
+            high: visualHigh,
+            low: visualLow,
+            close: visualClose,
+            color: candleColor,
+            borderColor: candleColor,
+            wickColor: candleColor,
+            value: tradePrice,
+          };
 
           if (mainSeriesRef.current) {
-            mainSeriesRef.current.update(current);
+            mainSeriesRef.current.update(visualUpdate);
           }
           if (volumeSeriesRef.current) {
             volumeSeriesRef.current.update({
               time: current.time,
-              value: (current.volume || 0) + tradeQty,
-              color: current.close >= current.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+              value: current.volume,
+              color: isBullish ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
             });
           }
           lastCandleRef.current = current;
           setCurrentCandle(current);
+          updatePriceLine(tradePrice, isBullish);
         } else {
+          const isBullish = true;
+          const candleColor = '#10b981';
           const newPoint = {
             time: nowSec,
             open: tradePrice,
             high: tradePrice,
             low: tradePrice,
             close: tradePrice,
-            value: tradePrice,
+            volume: tradeQty,
+            isBullish: true,
+            isFlat: true,
           };
+          candleMapRef.current.set(nowSec, newPoint);
+
+          const halfBody = Math.max(tradePrice * 0.0015, 0.2);
           if (mainSeriesRef.current) {
-            mainSeriesRef.current.update(newPoint);
+            mainSeriesRef.current.update({
+              time: nowSec,
+              open: tradePrice - halfBody,
+              high: tradePrice + halfBody,
+              low: tradePrice - halfBody,
+              close: tradePrice + halfBody,
+              color: candleColor,
+              borderColor: candleColor,
+              wickColor: candleColor,
+              value: tradePrice,
+            });
           }
           lastCandleRef.current = newPoint;
           setCurrentCandle(newPoint);
+          updatePriceLine(tradePrice, isBullish);
         }
       }
     });
@@ -513,9 +903,15 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
       setWsConnected(false);
       unsubscribe();
     };
-  }, [cleanSymbol, chartMode]);
+  }, [cleanSymbol, chartMode, updatePriceLine]);
 
-  const activeDisplay = hoverData || currentCandle;
+  const activeDisplay = hoverData || currentCandle || (Number(externalPrice) > 0 ? {
+    open: Number(externalPrice),
+    high: Number(externalPrice),
+    low: Number(externalPrice),
+    close: Number(externalPrice),
+    volume: null,
+  } : null);
 
   return (
     <div className="h-full w-full bg-surface border border-border rounded-lg overflow-hidden flex flex-col relative">
@@ -526,22 +922,20 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
           <div className="flex items-center gap-1 bg-background/90 p-0.5 rounded-lg border border-border/60">
             <button
               onClick={() => setChartMode('candles')}
-              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                chartMode === 'candles'
+              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${chartMode === 'candles'
                   ? 'bg-primary text-black shadow-sm'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               <BarChart2 size={13} />
               Candles
             </button>
             <button
               onClick={() => setChartMode('area')}
-              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                chartMode === 'area'
+              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${chartMode === 'area'
                   ? 'bg-primary text-black shadow-sm'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
             >
               <TrendingUp size={13} />
               Line / Area
@@ -555,11 +949,10 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
                 setIsDrawingTrendline(!isDrawingTrendline);
                 setPendingPoint(null);
               }}
-              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                isDrawingTrendline
+              className={`px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5 ${isDrawingTrendline
                   ? 'bg-sky-500 text-white shadow-sm ring-1 ring-sky-400'
                   : 'text-gray-400 hover:text-white'
-              }`}
+                }`}
               title="Click to draw interactive trendlines on the chart"
             >
               <PenTool size={13} />
@@ -590,11 +983,10 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
                   setInterval(int.value);
                   setHoverData(null);
                 }}
-                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
-                  interval === int.value
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${interval === int.value
                     ? 'bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/40'
                     : 'text-gray-400 hover:text-white'
-                }`}
+                  }`}
               >
                 {int.label}
               </button>
@@ -611,14 +1003,38 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
           </div>
         </div>
 
-        {/* Refresh button */}
-        <button
-          onClick={loadCandleData}
-          title="Reload Chart Data"
-          className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-border/40 transition-colors"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin text-primary' : ''} />
-        </button>
+        {/* Zoom Controls & Refresh */}
+        <div className="flex items-center gap-1 bg-background/90 p-0.5 rounded-lg border border-border/60">
+          <button
+            onClick={handleZoomIn}
+            title="Zoom In / Increase Candle Size (+)"
+            className="p-1 rounded text-gray-400 hover:text-white hover:bg-border/60 transition-colors"
+          >
+            <Plus size={13} />
+          </button>
+          <button
+            onClick={handleZoomOut}
+            title="Zoom Out / Decrease Candle Size (-)"
+            className="p-1 rounded text-gray-400 hover:text-white hover:bg-border/60 transition-colors"
+          >
+            <Minus size={13} />
+          </button>
+          <button
+            onClick={handleFitContent}
+            title="Fit All Candles"
+            className="p-1 rounded text-gray-400 hover:text-white hover:bg-border/60 transition-colors"
+          >
+            <Maximize2 size={13} />
+          </button>
+          <div className="h-3.5 w-px bg-border/60 mx-0.5"></div>
+          <button
+            onClick={loadCandleData}
+            title="Reload Chart Data"
+            className="p-1 rounded text-gray-400 hover:text-white hover:bg-border/60 transition-colors"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin text-primary' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* OHLCV Legend Bar (shows current/hovered candle values) */}
@@ -626,6 +1042,18 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         <span className="font-bold text-white tracking-wide">{cleanSymbol}</span>
         {activeDisplay ? (
           <>
+            {activeDisplay.time && (
+              <div className="text-gray-300">
+                Time: <span className="text-white font-medium">
+                  {new Date((typeof activeDisplay.time === 'number' ? activeDisplay.time : 0) * 1000).toLocaleTimeString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    hour12: false,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })} IST
+                </span>
+              </div>
+            )}
             <div>
               O: <span className="text-white font-medium">${Number(activeDisplay.open || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
@@ -636,7 +1064,12 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
               L: <span className="text-rose-400 font-medium">${Number(activeDisplay.low || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
             <div>
-              C: <span className={`font-semibold ${Number(activeDisplay.close) >= Number(activeDisplay.open) ? 'text-emerald-400' : 'text-rose-400'}`}>
+              C: <span className={`font-semibold ${Number(activeDisplay.close) > Number(activeDisplay.open)
+                  ? 'text-emerald-400'
+                  : (Number(activeDisplay.close) < Number(activeDisplay.open)
+                    ? 'text-rose-400'
+                    : (activeDisplay.isBullish !== false ? 'text-emerald-400' : 'text-rose-400'))
+                }`}>
                 ${Number(activeDisplay.close || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </span>
             </div>
@@ -665,9 +1098,8 @@ export default function PriceChart({ symbol = 'BTCUSDT', currentPrice: externalP
         <svg
           onClick={handleOverlayClick}
           onMouseMove={handleOverlayMouseMove}
-          className={`absolute inset-0 w-full h-full z-20 ${
-            isDrawingTrendline ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
-          }`}
+          className={`absolute inset-0 w-full h-full z-20 ${isDrawingTrendline ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'
+            }`}
         >
           <defs>
             <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">

@@ -5,5 +5,6 @@ export const walletApi = {
   getWalletBalance: (asset) => apiClient.get(`/wallets/${asset}`),
   deposit: (data) => apiClient.post('/wallets/deposit', data),
   withdraw: (data) => apiClient.post('/wallets/withdraw', data),
+  convert: (data) => apiClient.post('/wallets/convert', data),
 };
 

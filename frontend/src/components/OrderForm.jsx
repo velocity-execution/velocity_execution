@@ -55,9 +55,15 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
   const effQty = parseFloat(quantity || 0);
   const totalCost = effPrice * effQty;
 
-  // Deficit calculation for Buy orders
-  const isDeficit = side === 'buy' && totalCost > 0 && totalCost > availableQuote;
-  const deficitAmount = isDeficit ? Math.ceil(totalCost - availableQuote) : 0;
+  const totalBuyingPower = availableQuote + availableINR;
+
+  // Deficit calculation for Buy orders: only if totalCost exceeds both USDT and INR combined
+  const isDeficit = side === 'buy' && totalCost > 0 && totalCost > totalBuyingPower;
+  const deficitAmount = isDeficit ? Math.ceil(totalCost - totalBuyingPower) : 0;
+
+  // Whether user can use INR from wallet to cover the USDT shortfall
+  const needsWalletInrConversion = side === 'buy' && totalCost > availableQuote && totalCost <= totalBuyingPower;
+  const inrToConvert = needsWalletInrConversion ? Math.ceil(totalCost - availableQuote) : 0;
 
   const buildOrderData = () => ({
     symbol: (symbol || 'BTCUSDT').toUpperCase(),
@@ -89,9 +95,9 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
 
     if (side === 'buy' && (type === 'limit' || type === 'market')) {
       const totalReq = (parseFloat(price || currentPrice || 0)) * qtyNum;
-      if (totalReq > availableQuote) {
+      if (totalReq > totalBuyingPower) {
         setError(
-          `Insufficient ${quoteAsset} balance. Required: $${totalReq.toFixed(2)}, Available: $${availableQuote.toFixed(2)}. Use the button below to add funds with Razorpay.`
+          `Insufficient balance. Required: $${totalReq.toFixed(2)}, Available Wallet Funds: $${totalBuyingPower.toFixed(2)} ($${availableQuote.toFixed(2)} USDT + ₹${availableINR.toFixed(2)} INR).`
         );
         return;
       }
@@ -109,9 +115,22 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
 
     setLoading(true);
     try {
+      // Auto-use wallet INR if USDT is insufficient but user has enough INR in wallet
+      if (side === 'buy' && inrToConvert > 0 && availableINR >= inrToConvert) {
+        await walletApi.convert({
+          from_asset: 'INR',
+          to_asset: quoteAsset,
+          amount: inrToConvert,
+        });
+      }
+
       await orderApi.createOrder(buildOrderData());
       setSuccess(true);
-      setSuccessMsg(`Successfully placed ${side.toUpperCase()} order!`);
+      if (inrToConvert > 0) {
+        setSuccessMsg(`Used ₹${inrToConvert.toLocaleString()} from your wallet & placed ${side.toUpperCase()} order!`);
+      } else {
+        setSuccessMsg(`Successfully placed ${side.toUpperCase()} order!`);
+      }
       setQuantity('');
       dispatch(fetchWallets());
       dispatch(fetchOpenOrders());
@@ -123,7 +142,7 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
     }
   };
 
-  // Inline "Add Deficit via Razorpay & Place Order"
+  // Inline "Add Deficit via Razorpay & Place Order" (only when wallet is truly insufficient)
   const handleInlineTopupAndTrade = async () => {
     setError(null);
     setSuccess(false);
@@ -136,7 +155,7 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
 
     setInlineLoading(true);
     try {
-      // 1. Create Razorpay order for deficit amount
+      // 1. Create Razorpay order for actual shortfall
       const orderRes = await paymentApi.createOrder(deficitAmount);
       const orderData = orderRes?.data || orderRes;
 
@@ -158,10 +177,22 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
               razorpay_signature: rzpResponse.razorpay_signature,
             });
 
-            // 4. Credit the trading asset balance (USDT) so the matching engine can lock it
+            // 4. Convert remaining INR in wallet to USDT if needed
+            if (availableINR > 0) {
+              const inrToUse = Math.min(availableINR, Math.max(0, Math.ceil(totalCost - availableQuote - deficitAmount)));
+              if (inrToUse > 0) {
+                await walletApi.convert({
+                  from_asset: 'INR',
+                  to_asset: quoteAsset,
+                  amount: inrToUse,
+                });
+              }
+            }
+
+            // 5. Credit the deficit top-up to USDT
             await walletApi.deposit({ asset: quoteAsset, amount: deficitAmount });
 
-            // 5. Automatically place the user's trade order
+            // 6. Automatically place the user's trade order
             await orderApi.createOrder(buildOrderData());
 
             setSuccess(true);
@@ -249,9 +280,18 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
           </div>
 
           <div className="flex justify-between items-center text-xs text-gray-400">
-            <span>Available {side === 'buy' ? quoteAsset : baseAsset}:</span>
+            <span>Available {side === 'buy' ? 'Buying Power' : baseAsset}:</span>
             <span className="text-white font-medium">
-              {side === 'buy' ? availableQuote.toLocaleString() : availableBase.toLocaleString()} {side === 'buy' ? quoteAsset : baseAsset}
+              {side === 'buy' ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-emerald-400 font-bold">${availableQuote.toLocaleString()} {quoteAsset}</span>
+                  {availableINR > 0 && (
+                    <span className="text-indigo-300 font-normal">(+ ₹{availableINR.toLocaleString()} Wallet Cash)</span>
+                  )}
+                </span>
+              ) : (
+                `${availableBase.toLocaleString()} ${baseAsset}`
+              )}
             </span>
           </div>
 
@@ -316,7 +356,7 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
               </span>
             </div>
 
-            {/* INLINE DEFICIT TOP-UP NOTICE & BUTTON */}
+            {/* INLINE DEFICIT TOP-UP NOTICE & BUTTON - ONLY WHEN TOTAL WALLET BALANCE IS INSUFFICIENT */}
             {isDeficit ? (
               <div className="space-y-2">
                 <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
@@ -325,7 +365,7 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
                     <span>Razorpay UPI</span>
                   </div>
                   <p className="text-gray-400 text-[11px] mt-0.5">
-                    Add the required ₹{deficitAmount.toLocaleString()} to complete this trade instantly.
+                    Your total wallet funds (${availableQuote} USDT + ₹{availableINR} Cash) are insufficient. Add remaining ₹{deficitAmount.toLocaleString()} via Razorpay to place order.
                   </p>
                 </div>
                 <button
@@ -353,9 +393,18 @@ export default function OrderForm({ symbol = 'CTGUSDT', currentPrice }) {
                 disabled={loading}
                 className={`w-full py-2.5 rounded-lg font-bold uppercase transition-colors text-white ${
                   side === 'buy' ? 'bg-success hover:bg-success/90' : 'bg-danger hover:bg-danger/90'
-                } disabled:opacity-50 text-sm`}
+                } disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
-                {loading ? 'Processing...' : `${side} ${baseAsset}`}
+                {loading ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    <span>Processing Order...</span>
+                  </>
+                ) : needsWalletInrConversion ? (
+                  <span>Buy {baseAsset} (Use ₹{inrToConvert.toLocaleString()} Wallet Cash)</span>
+                ) : (
+                  `${side} ${baseAsset}`
+                )}
               </button>
             )}
           </div>

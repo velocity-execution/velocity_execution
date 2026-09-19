@@ -35,11 +35,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("[main] database connection failed: %v", err)
 	}
-	
-	// Seed initial data
+
+	// Seed required default system and test users
 	seed.SeedUsers(db)
-
-
 
 	// ── 3. Build shared services ──────────────────────────────
 	jwtSvc := jwtpkg.NewJWTService(

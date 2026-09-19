@@ -80,7 +80,7 @@ export default function RecentTrades({ symbol = 'BTCUSDT', onClose }) {
       <div className="grid grid-cols-3 px-3 py-1.5 text-[11px] text-gray-400 border-b border-border/40 font-medium shrink-0 bg-[#0f172a]/40">
         <span>Price (USDT)</span>
         <span className="text-right">Size</span>
-        <span className="text-right">Time</span>
+        <span className="text-right">Time (IST)</span>
       </div>
 
       {/* Trades List */}
@@ -93,7 +93,16 @@ export default function RecentTrades({ symbol = 'BTCUSDT', onClose }) {
         ) : (
           trades.map((t, idx) => {
             const isBuy = t.side ? t.side.toLowerCase() === 'buy' : true;
-            const timeStr = t.time ? new Date(t.time).toLocaleTimeString([], { hour12: false }) : '--:--:--';
+            const rawTime = t.executed_at || t.time || t.created_at;
+            const timeStr = rawTime
+              ? new Date(rawTime).toLocaleTimeString('en-IN', {
+                  timeZone: 'Asia/Kolkata',
+                  hour12: false,
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })
+              : '--:--:--';
 
             return (
               <div
@@ -106,7 +115,7 @@ export default function RecentTrades({ symbol = 'BTCUSDT', onClose }) {
                 <span className="text-right text-gray-300 font-mono">
                   {Number(t.quantity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                 </span>
-                <span className="text-right text-gray-500 text-[10px]">
+                <span className="text-right text-gray-400 text-[10px]">
                   {timeStr}
                 </span>
               </div>

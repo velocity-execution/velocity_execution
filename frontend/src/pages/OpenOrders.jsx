@@ -1,7 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchOpenOrders } from '../store/orderSlice';
-import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertCircle, ArrowUpRight, Zap } from 'lucide-react';
+import { fetchWallets } from '../store/walletSlice';
+import { orderApi } from '../api/orderApi';
+import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertCircle, ArrowUpRight, Zap, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const formatSymbol = (sym) => {
@@ -15,9 +17,30 @@ const formatSymbol = (sym) => {
 export default function OpenOrders() {
   const dispatch = useDispatch();
   const { openOrders, loading, error } = useSelector(state => state.order);
+  const [cancellingId, setCancellingId] = useState(null);
+  const [cancelFeedback, setCancelFeedback] = useState(null);
 
   const loadOrders = () => {
     dispatch(fetchOpenOrders());
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to cancel this order? Any locked funds will be returned to your wallet.')) {
+      return;
+    }
+    setCancellingId(orderId);
+    setCancelFeedback(null);
+    try {
+      await orderApi.cancelOrder(orderId);
+      setCancelFeedback({ type: 'success', message: 'Order cancelled successfully. Locked funds unlocked.' });
+      dispatch(fetchOpenOrders());
+      dispatch(fetchWallets());
+    } catch (err) {
+      setCancelFeedback({ type: 'error', message: err.message || 'Failed to cancel order' });
+    } finally {
+      setCancellingId(null);
+      setTimeout(() => setCancelFeedback(null), 5000);
+    }
   };
 
   useEffect(() => {
@@ -103,11 +126,28 @@ export default function OpenOrders() {
         </div>
       </div>
 
+      {/* Feedback Toast */}
+      {cancelFeedback && (
+        <div className={`flex items-center justify-between p-3.5 rounded-xl border text-xs shadow-sm transition-all ${
+          cancelFeedback.type === 'success' 
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} />
+            <span>{cancelFeedback.message}</span>
+          </div>
+          <button onClick={() => setCancelFeedback(null)} className="text-gray-400 hover:text-white">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Informational Execution Banner */}
       <div className="flex items-center gap-3 p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-blue-200 text-xs shadow-sm">
         <Zap size={16} className="text-blue-400 shrink-0" />
         <span>
-          <strong>Automated Order Execution:</strong> Orders placed on the matching engine are committed and cannot be manually cancelled. When market conditions reach your price target (e.g. if the market price drops to your specified limit), your order will execute automatically.
+          <strong>Automated Matching Engine:</strong> Orders are queued on the real-time orderbook and match automatically when counterparty limit or market orders cross. You can cancel any resting order at any time to instantly return locked funds to your wallet.
         </span>
       </div>
 
@@ -125,13 +165,14 @@ export default function OpenOrders() {
                 <th className="px-6 py-3.5 font-semibold text-right">Amount</th>
                 <th className="px-6 py-3.5 font-semibold text-right">Remaining</th>
                 <th className="px-6 py-3.5 font-semibold text-center">Status</th>
-                <th className="px-6 py-3.5 font-semibold text-right">Automatic Trigger</th>
+                <th className="px-6 py-3.5 font-semibold text-left">Trigger Condition</th>
+                <th className="px-6 py-3.5 font-semibold text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && ordersList.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-12 text-center text-gray-400">
+                  <td colSpan="10" className="px-6 py-12 text-center text-gray-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <RefreshCw size={24} className="animate-spin text-primary" />
                       <span>Loading active orders from server...</span>
@@ -140,7 +181,7 @@ export default function OpenOrders() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-12 text-center text-danger">
+                  <td colSpan="10" className="px-6 py-12 text-center text-danger">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <AlertCircle size={24} />
                       <span className="font-medium">Failed to load orders: {error}</span>
@@ -155,7 +196,7 @@ export default function OpenOrders() {
                 </tr>
               ) : ordersList.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-14 text-center text-gray-400">
+                  <td colSpan="10" className="px-6 py-14 text-center text-gray-400">
                     <div className="flex flex-col items-center justify-center gap-3 max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-full bg-border/40 flex items-center justify-center text-gray-500">
                         <Clock size={22} />
@@ -218,8 +259,8 @@ export default function OpenOrders() {
                           {order.status || 'OPEN'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end gap-0.5">
+                      <td className="px-6 py-4 text-left">
+                        <div className="flex flex-col items-start gap-0.5">
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-primary/10 text-primary border border-primary/20">
                             <Zap size={11} className="text-primary" />
                             {isBuy 
@@ -228,6 +269,26 @@ export default function OpenOrders() {
                           </span>
                           <span className="text-[10px] text-gray-500 font-medium">Matching Engine Active</span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => handleCancelOrder(order.id)}
+                          disabled={cancellingId === order.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/25 hover:border-rose-500/40 rounded-lg transition-all disabled:opacity-50 shadow-sm"
+                          title="Cancel order and refund locked funds"
+                        >
+                          {cancellingId === order.id ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin" />
+                              <span>Cancelling...</span>
+                            </>
+                          ) : (
+                            <>
+                              <X size={13} />
+                              <span>Cancel</span>
+                            </>
+                          )}
+                        </button>
                       </td>
                     </tr>
                   );

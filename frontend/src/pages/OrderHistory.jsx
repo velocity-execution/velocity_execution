@@ -156,13 +156,15 @@ export default function OrderHistory() {
                   return (
                     <tr key={order.id} className="hover:bg-white/[0.02] transition-colors">
                       <td className="px-6 py-4 text-gray-400 text-xs font-mono whitespace-nowrap">
-                        {new Date(order.created_at || Date.now()).toLocaleString('en-US', {
+                        {new Date(order.created_at || Date.now()).toLocaleString('en-IN', {
+                          timeZone: 'Asia/Kolkata',
                           year: 'numeric',
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
                           minute: '2-digit',
-                        })}
+                          hour12: false,
+                        })} IST
                       </td>
                       <td className="px-6 py-4 font-bold text-white whitespace-nowrap">
                         {formatSymbol(order.symbol)}

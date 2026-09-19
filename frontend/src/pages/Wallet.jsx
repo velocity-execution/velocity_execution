@@ -15,7 +15,8 @@ import {
   AlertCircle, 
   RefreshCw,
   Building2,
-  Smartphone
+  Smartphone,
+  ArrowLeftRight
 } from 'lucide-react';
 
 export default function Wallet() {
@@ -37,10 +38,21 @@ export default function Wallet() {
   // Modals state
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
-  const [assetModal, setAssetModal] = useState({ isOpen: false, type: null, asset: null });
+  const [isConvertOpen, setIsConvertOpen] = useState(false);
+
+  // Convert Form State (INR <-> USDT)
+  const [convertFrom, setConvertFrom] = useState('INR');
+  const [convertAmount, setConvertAmount] = useState('');
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertError, setConvertError] = useState('');
+  const [convertSuccess, setConvertSuccess] = useState('');
+
+  const convertTo = convertFrom === 'INR' ? 'USDT' : 'INR';
+  const fromWallet = balanceList.find((b) => b.asset?.toUpperCase() === convertFrom) || { available: 0, locked: 0 };
+  const toWallet = balanceList.find((b) => b.asset?.toUpperCase() === convertTo) || { available: 0, locked: 0 };
 
   // Deposit Form State
-  const [depositAmount, setDepositAmount] = useState('5000');
+  const [depositAmount, setDepositAmount] = useState('');
   const [isDepositing, setIsDepositing] = useState(false);
   const [depositError, setDepositError] = useState('');
   const [depositSuccess, setDepositSuccess] = useState('');
@@ -55,11 +67,6 @@ export default function Wallet() {
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawError, setWithdrawError] = useState('');
   const [withdrawSuccess, setWithdrawSuccess] = useState('');
-
-  // Asset Modal Form (Legacy asset simulation)
-  const [assetAmount, setAssetAmount] = useState('');
-  const [isAssetSubmitting, setIsAssetSubmitting] = useState(false);
-  const [assetSubmitError, setAssetSubmitError] = useState('');
 
   // Transactions State
   const [transactions, setTransactions] = useState([]);
@@ -204,37 +211,41 @@ export default function Wallet() {
     }
   };
 
-  // Asset legacy simulation modal
-  const handleAssetSubmit = async (e) => {
+  // Convert currency handler
+  const handleConvertSubmit = async (e) => {
     e.preventDefault();
-    const num = parseFloat(assetAmount);
+    setConvertError('');
+    setConvertSuccess('');
+
+    const num = Math.floor(parseFloat(convertAmount));
     if (!num || num <= 0) {
-      setAssetSubmitError('Please enter a valid positive amount.');
+      setConvertError('Please enter a valid positive whole number.');
       return;
     }
 
-    if (assetModal.type === 'withdraw') {
-      const b = balanceList.find((item) => item.asset === assetModal.asset);
-      if (b && num > b.available) {
-        setAssetSubmitError('Insufficient available balance.');
-        return;
-      }
+    if (num > fromWallet.available) {
+      setConvertError(`Insufficient ${convertFrom} balance. You have ${fromWallet.available} available.`);
+      return;
     }
 
-    setIsAssetSubmitting(true);
-    setAssetSubmitError('');
+    setIsConverting(true);
     try {
-      if (assetModal.type === 'deposit') {
-        await walletApi.deposit({ asset: assetModal.asset, amount: num });
-      } else {
-        await walletApi.withdraw({ asset: assetModal.asset, amount: num });
-      }
+      await walletApi.convert({
+        from_asset: convertFrom,
+        to_asset: convertTo,
+        amount: num,
+      });
+      setConvertSuccess(`Successfully converted ${num} ${convertFrom} to ${num} ${convertTo}!`);
+      setConvertAmount('');
       dispatch(fetchWallets());
-      setAssetModal({ isOpen: false, type: null, asset: null });
+      setTimeout(() => {
+        setIsConvertOpen(false);
+        setConvertSuccess('');
+      }, 1500);
     } catch (err) {
-      setAssetSubmitError(err.message || 'An error occurred during transaction.');
+      setConvertError(err.message || 'Failed to convert currency.');
     } finally {
-      setIsAssetSubmitting(false);
+      setIsConverting(false);
     }
   };
 
@@ -280,7 +291,19 @@ export default function Wallet() {
           </div>
 
           {/* Primary Action Buttons */}
-          <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <button
+              onClick={() => {
+                setIsConvertOpen(true);
+                setConvertError('');
+                setConvertSuccess('');
+                setConvertAmount('');
+              }}
+              className="flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition-all shadow-lg shadow-indigo-900/30 text-sm"
+            >
+              <ArrowLeftRight size={18} />
+              Convert INR ⇄ USDT
+            </button>
             <button
               onClick={() => {
                 setIsDepositOpen(true);
@@ -324,19 +347,18 @@ export default function Wallet() {
                 <th className="px-6 py-3.5 font-medium text-right">Available</th>
                 <th className="px-6 py-3.5 font-medium text-right">Locked in Orders</th>
                 <th className="px-6 py-3.5 font-medium text-right">Total Balance</th>
-                <th className="px-6 py-3.5 font-medium text-right">Simulate</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && assetList.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
                     Loading assets...
                   </td>
                 </tr>
               ) : assetList.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
                     No active assets found
                   </td>
                 </tr>
@@ -355,18 +377,6 @@ export default function Wallet() {
                     </td>
                     <td className="px-6 py-4 text-right font-semibold text-white">
                       {(b.available + b.locked).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-6 py-4 text-right space-x-2">
-                      <button
-                        onClick={() => {
-                          setAssetModal({ isOpen: true, type: 'deposit', asset: b.asset });
-                          setAssetAmount('');
-                          setAssetSubmitError('');
-                        }}
-                        className="text-xs px-2.5 py-1 rounded bg-border/60 hover:bg-border text-gray-300 transition-colors"
-                      >
-                        + Demo
-                      </button>
                     </td>
                   </tr>
                 ))
@@ -769,45 +779,137 @@ export default function Wallet() {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 3: ASSET DEMO SIMULATION (Legacy Assets)            */}
+      {/* MODAL 3: INSTANT CONVERT (INR <-> USDT)                   */}
       {/* ========================================================= */}
-      {assetModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-sm overflow-hidden p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-bold text-white capitalize">
-                {assetModal.type} {assetModal.asset}
-              </h3>
+      {isConvertOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-6 space-y-5">
+            <div className="flex justify-between items-center pb-2 border-b border-border/50">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <ArrowLeftRight size={18} />
+                </span>
+                <div>
+                  <h3 className="font-bold text-white text-base">Convert Currency</h3>
+                  <p className="text-xs text-gray-400">Zero fee • Instant 1:1 settlement</p>
+                </div>
+              </div>
               <button
-                onClick={() => setAssetModal({ isOpen: false, type: null, asset: null })}
-                className="text-gray-400 hover:text-white"
+                onClick={() => setIsConvertOpen(false)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-border/40 transition-colors"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
-            {assetSubmitError && (
-              <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs p-2.5 rounded-lg">
-                {assetSubmitError}
+
+            {convertError && (
+              <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs p-3 rounded-xl flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>{convertError}</span>
               </div>
             )}
-            <form onSubmit={handleAssetSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Simulated Quantity</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={assetAmount}
-                  onChange={(e) => setAssetAmount(e.target.value)}
-                  className="w-full bg-background border border-border rounded-xl px-4 py-2 text-white"
-                  placeholder="10.00"
-                />
+
+            {convertSuccess && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs p-3 rounded-xl flex items-center gap-2">
+                <CheckCircle2 size={16} className="shrink-0" />
+                <span>{convertSuccess}</span>
               </div>
+            )}
+
+            <form onSubmit={handleConvertSubmit} className="space-y-4">
+              {/* Swap Direction Toggle */}
+              <div className="flex items-center justify-between bg-[#0f172a]/60 border border-border/60 rounded-xl p-3">
+                <div className="flex-1 text-center">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">From</span>
+                  <span className="text-base font-extrabold text-white">{convertFrom}</span>
+                  <span className="text-xs text-gray-400 block">Avail: {fromWallet.available}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConvertFrom(convertTo);
+                    setConvertAmount('');
+                    setConvertError('');
+                  }}
+                  className="p-2.5 rounded-full bg-indigo-600/30 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-500/40 transition-all active:scale-95"
+                  title="Swap direction"
+                >
+                  <ArrowLeftRight size={16} />
+                </button>
+                <div className="flex-1 text-center">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">To</span>
+                  <span className="text-base font-extrabold text-emerald-400">{convertTo}</span>
+                  <span className="text-xs text-gray-400 block">Avail: {toWallet.available}</span>
+                </div>
+              </div>
+
+              {/* Amount Input */}
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Amount to Convert
+                  </label>
+                  <span className="text-xs text-gray-400">
+                    Available: <span className="text-white font-medium">{fromWallet.available} {convertFrom}</span>
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={convertAmount}
+                    onChange={(e) => setConvertAmount(e.target.value)}
+                    disabled={isConverting}
+                    className="w-full bg-background border border-border rounded-xl pl-4 pr-16 py-3 text-white text-base focus:outline-none focus:border-indigo-500 transition-colors"
+                    placeholder="e.g. 5000"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setConvertAmount(Math.floor(fromWallet.available).toString())}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-400 hover:text-indigo-300 px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors"
+                  >
+                    MAX
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary / Preview */}
+              {parseFloat(convertAmount) > 0 && (
+                <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 text-xs space-y-1.5">
+                  <div className="flex justify-between text-gray-400">
+                    <span>Conversion Rate</span>
+                    <span className="text-white font-medium">1 {convertFrom} = 1 {convertTo}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-400">
+                    <span>Fee</span>
+                    <span className="text-emerald-400 font-medium">₹0.00 (Zero Fee)</span>
+                  </div>
+                  <div className="pt-1.5 border-t border-indigo-500/20 flex justify-between font-semibold">
+                    <span className="text-gray-300">You Receive</span>
+                    <span className="text-emerald-400 font-bold text-sm">
+                      {Math.floor(parseFloat(convertAmount))} {convertTo}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={isAssetSubmitting}
-                className="w-full py-2.5 rounded-xl font-medium text-white bg-primary hover:bg-primary/90 transition-colors"
+                disabled={isConverting || !convertAmount || parseFloat(convertAmount) <= 0}
+                className="w-full py-3.5 rounded-xl font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/30 text-sm active:scale-95"
               >
-                {isAssetSubmitting ? 'Updating...' : `Confirm ${assetModal.type}`}
+                {isConverting ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Converting Funds...</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowLeftRight size={16} />
+                    <span>Convert {convertFrom} to {convertTo}</span>
+                  </>
+                )}
               </button>
             </form>
           </div>
